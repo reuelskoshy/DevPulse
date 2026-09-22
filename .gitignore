@@ -1,0 +1,17 @@
+# IDE and operating-system files
+.idea/
+*.iml
+.DS_Store
+
+# Backend build output
+backend/target/
+backend/.m2/
+
+# Frontend build output and dependencies
+frontend/node_modules/
+frontend/dist/
+
+# Local environment overrides
+.env
+backend/.env
+frontend/.env
