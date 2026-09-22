@@ -1,6 +1,7 @@
 package com.devpulse.common.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.devpulse.integration.github.GitHubProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,7 +24,7 @@ import java.util.Map;
 
 @Configuration
 @EnableWebSecurity
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties({JwtProperties.class, GitHubProperties.class})
 public class SecurityConfig {
 
     @Bean
@@ -34,7 +35,8 @@ public class SecurityConfig {
                 .cors(cors -> { })
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/api/v1/auth/**", "/api/v1/health", "/actuator/health/**").permitAll()
+                        .requestMatchers("/api/v1/auth/**", "/api/v1/health", "/actuator/health/**",
+                                "/api/v1/integrations/github/callback").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, exception) -> {

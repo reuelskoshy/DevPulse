@@ -30,3 +30,9 @@ devpulse:
       access-token-expiration: PT15M
   cors:
     allowed-origin: ${FRONTEND_ORIGIN:http://localhost:5173}
+  integrations:
+    github:
+      client-id: ${GITHUB_CLIENT_ID:}
+      client-secret: ${GITHUB_CLIENT_SECRET:}
+      redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:8080/api/v1/integrations/github/callback}
+      frontend-success-url: ${GITHUB_FRONTEND_SUCCESS_URL:http://localhost:5173/integrations/github}

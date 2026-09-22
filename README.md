@@ -29,6 +29,15 @@ Endpoints:
 - `POST /api/v1/auth/login` — returns an access token and user DTO
 - `GET /api/v1/users/me` — requires `Authorization: Bearer <access-token>`
 
+## Connect GitHub
+
+1. Create an OAuth App at [GitHub Developer Settings](https://github.com/settings/developers). For local development, set its authorization callback URL to `http://localhost:8080/api/v1/integrations/github/callback`.
+2. Add the Client ID and Client Secret to `backend/.env` as `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, then configure the same values as environment variables in the IntelliJ run configuration. Keep them private.
+3. Sign in to DevPulse, then call `POST /api/v1/integrations/github/authorize` with the access token. Open the returned `authorizationUrl` in a browser and approve GitHub access.
+4. GitHub redirects back to the API, which links the GitHub account. Confirm the result with `GET /api/v1/integrations/github` using the same access token.
+
+The connection currently requests `read:user` and `repo` scopes so DevPulse can identify the account and, in the next backend milestone, read repositories and pull-request activity.
+
 ## Environment variables
 
 The root `.env` file is exclusively for local Docker Compose infrastructure. Future backend service secrets, including GitHub OAuth and LLM keys, will be documented in a separate backend environment template and never committed.
