@@ -6,7 +6,7 @@ import java.util.UUID;
 
 import javax.crypto.SecretKey;
 
-import com.devpulse.auth.domain.User;
+import com.devpulse.user.domain.DpUser;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
@@ -24,7 +24,7 @@ public class JwtService {
         this.signingKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(properties.secret()));
     }
 
-    public String createAccessToken(User user) {
+    public String createAccessToken(DpUser user) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(user.getId().toString())

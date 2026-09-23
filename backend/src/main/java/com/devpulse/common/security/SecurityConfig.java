@@ -1,12 +1,14 @@
 package com.devpulse.common.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.devpulse.insights.service.AnthropicProperties;
 import com.devpulse.integration.github.GitHubProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -24,7 +26,8 @@ import java.util.Map;
 
 @Configuration
 @EnableWebSecurity
-@EnableConfigurationProperties({JwtProperties.class, GitHubProperties.class})
+@EnableMethodSecurity
+@EnableConfigurationProperties({JwtProperties.class, GitHubProperties.class, AnthropicProperties.class})
 public class SecurityConfig {
 
     @Bean

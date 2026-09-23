@@ -10,6 +10,8 @@ import java.util.UUID;
 import com.devpulse.common.exception.ConflictException;
 import com.devpulse.common.exception.UnauthorizedException;
 import com.devpulse.common.security.UserPrincipal;
+import com.devpulse.sync.persistence.GitHubCommitRepository;
+import com.devpulse.sync.persistence.GitHubRepoRepository;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,13 +27,18 @@ public class GitHubOAuthService {
     private final GitHubProperties properties;
     private final GitHubOAuthStateRepository stateRepository;
     private final GitHubAccountRepository accountRepository;
+    private final GitHubRepoRepository repoRepository;
+    private final GitHubCommitRepository commitRepository;
     private final RestClient restClient;
 
     public GitHubOAuthService(GitHubProperties properties, GitHubOAuthStateRepository stateRepository,
-                              GitHubAccountRepository accountRepository, RestClient.Builder restClientBuilder) {
+                              GitHubAccountRepository accountRepository, GitHubRepoRepository repoRepository,
+                              GitHubCommitRepository commitRepository, RestClient.Builder restClientBuilder) {
         this.properties = properties;
         this.stateRepository = stateRepository;
         this.accountRepository = accountRepository;
+        this.repoRepository = repoRepository;
+        this.commitRepository = commitRepository;
         this.restClient = restClientBuilder.build();
     }
 
@@ -90,7 +97,11 @@ public class GitHubOAuthService {
     @Transactional(readOnly = true)
     public GitHubConnectionResponse connection(UserPrincipal user) {
         return accountRepository.findByUserId(user.id())
-                .map(account -> GitHubConnectionResponse.connected(account.getLogin()))
+                .map(account -> GitHubConnectionResponse.connected(
+                        account.getLogin(),
+                        (int) repoRepository.countByGithubAccountId(account.getId()),
+                        (int) commitRepository.countByRepository_GithubAccountId(account.getId()),
+                        account.getLastSyncedAt()))
                 .orElseGet(GitHubConnectionResponse::disconnected);
     }
 

@@ -2,6 +2,7 @@
 .idea/
 *.iml
 .DS_Store
+.claude/
 
 # Backend build output
 backend/target/
@@ -15,3 +16,9 @@ frontend/dist/
 .env
 backend/.env
 frontend/.env
+
+# Local tooling and scratch files (not part of the project)
+/apache-maven-3.9.6/
+/nul
+/START-HERE.txt
+/start-devpulse.bat

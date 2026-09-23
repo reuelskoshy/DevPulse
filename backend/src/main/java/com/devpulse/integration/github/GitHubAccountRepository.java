@@ -5,6 +5,6 @@ import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
-interface GitHubAccountRepository extends JpaRepository<GitHubAccount, UUID> {
+public interface GitHubAccountRepository extends JpaRepository<GitHubAccount, UUID> {
     Optional<GitHubAccount> findByUserId(UUID userId);
 }

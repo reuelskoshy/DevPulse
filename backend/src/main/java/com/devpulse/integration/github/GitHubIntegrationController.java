@@ -3,6 +3,8 @@ package com.devpulse.integration.github;
 import java.net.URI;
 
 import com.devpulse.common.security.UserPrincipal;
+import com.devpulse.sync.api.SyncResponse;
+import com.devpulse.sync.service.GitHubSyncService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -17,10 +19,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class GitHubIntegrationController {
 
     private final GitHubOAuthService gitHubOAuthService;
+    private final GitHubSyncService gitHubSyncService;
     private final GitHubProperties properties;
 
-    public GitHubIntegrationController(GitHubOAuthService gitHubOAuthService, GitHubProperties properties) {
+    public GitHubIntegrationController(GitHubOAuthService gitHubOAuthService, GitHubSyncService gitHubSyncService,
+                                        GitHubProperties properties) {
         this.gitHubOAuthService = gitHubOAuthService;
+        this.gitHubSyncService = gitHubSyncService;
         this.properties = properties;
     }
 
@@ -40,5 +45,10 @@ public class GitHubIntegrationController {
     @GetMapping
     public GitHubConnectionResponse connection(@AuthenticationPrincipal UserPrincipal user) {
         return gitHubOAuthService.connection(user);
+    }
+
+    @PostMapping("/sync")
+    public SyncResponse sync(@AuthenticationPrincipal UserPrincipal user) {
+        return gitHubSyncService.sync(user);
     }
 }

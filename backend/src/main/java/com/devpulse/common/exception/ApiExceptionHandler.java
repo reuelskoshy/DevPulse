@@ -5,6 +5,7 @@ import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -20,6 +21,16 @@ public class ApiExceptionHandler {
     @ExceptionHandler(UnauthorizedException.class)
     ResponseEntity<ApiError> handleUnauthorized(UnauthorizedException exception) {
         return error(HttpStatus.UNAUTHORIZED, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    ResponseEntity<ApiError> handleForbidden(ForbiddenException exception) {
+        return error(HttpStatus.FORBIDDEN, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(AuthorizationDeniedException.class)
+    ResponseEntity<ApiError> handleAuthorizationDenied(AuthorizationDeniedException exception) {
+        return error(HttpStatus.FORBIDDEN, "You do not have permission to perform this action.", Map.of());
     }
 
     @ExceptionHandler(NotFoundException.class)

@@ -7,6 +7,11 @@ spring:
     password: ${DATABASE_PASSWORD}
   jpa:
     open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
   flyway:
     enabled: true
 
@@ -28,6 +33,7 @@ devpulse:
     jwt:
       secret: ${JWT_SECRET}
       access-token-expiration: PT15M
+    encryption-key: ${TOKEN_ENCRYPTION_KEY}
   cors:
     allowed-origin: ${FRONTEND_ORIGIN:http://localhost:5173}
   integrations:
@@ -35,4 +41,7 @@ devpulse:
       client-id: ${GITHUB_CLIENT_ID:}
       client-secret: ${GITHUB_CLIENT_SECRET:}
       redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:8080/api/v1/integrations/github/callback}
-      frontend-success-url: ${GITHUB_FRONTEND_SUCCESS_URL:http://localhost:5173/integrations/github}
+      frontend-success-url: ${GITHUB_FRONTEND_SUCCESS_URL:http://localhost:5173/app/dashboard}
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      model: ${ANTHROPIC_MODEL:claude-haiku-4-5-20251001}
