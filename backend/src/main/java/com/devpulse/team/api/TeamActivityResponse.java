@@ -18,7 +18,15 @@ public record TeamActivityResponse(
         List<DailyCommits> daily,
         List<Member> members) {
 
-    public record Totals(int members, int connectedMembers, int activeMembers, int commits, int reposTouched) { }
+    public record Totals(int members, int connectedMembers, int activeMembers, int commits, int reposTouched,
+                         PullRequestStats pullRequests) { }
+
+    /**
+     * Pull request flow over the window. {@code opened}, {@code merged} and {@code reviews} count events inside the
+     * window, {@code open} counts authored PRs still open now, and {@code medianHoursToMerge} covers the PRs merged
+     * in the window (null when none merged).
+     */
+    public record PullRequestStats(int opened, int merged, int open, int reviews, Double medianHoursToMerge) { }
 
     public record DailyCommits(LocalDate date, int commits) { }
 
@@ -39,5 +47,6 @@ public record TeamActivityResponse(
             int activeDays,
             Instant lastCommitAt,
             List<RepoCommits> topRepos,
-            List<DailyCommits> daily) { }
+            List<DailyCommits> daily,
+            PullRequestStats pullRequests) { }
 }

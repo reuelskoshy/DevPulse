@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -24,6 +25,7 @@ import com.devpulse.demo.DemoTeam.Persona;
 import com.devpulse.demo.DemoTeam.Repo;
 import com.devpulse.demo.DemoTeam.RepoWeight;
 import com.devpulse.demo.DemoTeam.Rhythm;
+import com.devpulse.user.domain.DpUserRole;
 
 /**
  * The demo's GitHub history, generated in memory with no database access so it can be tested directly.
@@ -43,6 +45,11 @@ final class DemoDataset {
     static final int QUIET_LAST_COMMIT_DAYS_AGO = 10;
 
     private static final long BASE_SEED = 0x5EED_DE70_2026L;
+    /** Pull requests draw from their own seed stream, so they never shift the commit history. */
+    private static final long PULL_REQUEST_SALT = 0x9E37_79B9_7F4A_7C15L;
+    /** Commits to one repo more than this many days apart go into separate pull requests. */
+    private static final long PULL_REQUEST_MAX_GAP_DAYS = 3;
+    private static final double CLOSED_WITHOUT_MERGE_CHANCE = 0.07;
     /** The fading persona's only recent commits: days-ago to commit count. */
     private static final Map<Integer, Integer> FADING_RECENT_COMMITS = Map.of(13, 1, QUIET_LAST_COMMIT_DAYS_AGO, 2);
     /** The fading persona committed at their normal rate before this many days ago, and at a reduced rate until the next threshold. */
@@ -74,8 +81,19 @@ final class DemoDataset {
 
     record InsightPlan(String summary, int commitCount, int repoCount) { }
 
-    /** {@code lastSyncedAt} and {@code insight} are null, and {@code commits} empty, for someone not connected. */
-    record PersonaPlan(Persona persona, Instant lastSyncedAt, List<PlannedCommit> commits, InsightPlan insight) { }
+    /** {@code mergedAt} and {@code closedAt} are both null while open; a merged PR is also closed, as on GitHub. */
+    record PlannedPullRequest(Repo repo, long id, int number, String title, Instant openedAt, Instant mergedAt,
+                              Instant closedAt, Instant updatedAt) { }
+
+    /** Someone else's pull request that this persona reviewed, and when they first did. */
+    record PlannedReview(PlannedPullRequest pullRequest, Instant reviewedAt) { }
+
+    /**
+     * {@code lastSyncedAt} and {@code insight} are null, and the lists empty, for someone not connected.
+     * {@code pullRequests} are the ones this persona authored; {@code reviews} are PRs by teammates.
+     */
+    record PersonaPlan(Persona persona, Instant lastSyncedAt, List<PlannedCommit> commits,
+                       List<PlannedPullRequest> pullRequests, List<PlannedReview> reviews, InsightPlan insight) { }
 
     private final LocalDate today;
     private final List<PersonaPlan> plans;
@@ -103,14 +121,28 @@ final class DemoDataset {
                 .mapToInt(commits -> inWindow(commits, windowStart).size())
                 .max().orElse(0);
 
+        Map<String, List<PlannedPullRequest>> pullRequestsByEmail = new HashMap<>();
+        Map<String, List<PlannedReview>> reviewsByEmail = new HashMap<>();
+        for (Persona persona : DemoTeam.PERSONAS) {
+            if (persona.connected()) {
+                pullRequestsByEmail.put(persona.email(), pullRequestsFor(persona,
+                        commitsByEmail.get(persona.email()), syncedAtByEmail.get(persona.email())));
+                reviewsByEmail.put(persona.email(), new ArrayList<>());
+            }
+        }
+        assignReviews(pullRequestsByEmail, reviewsByEmail, syncedAtByEmail, today);
+
         List<PersonaPlan> plans = new ArrayList<>();
         for (Persona persona : DemoTeam.PERSONAS) {
             if (!persona.connected()) {
-                plans.add(new PersonaPlan(persona, null, List.of(), null));
+                plans.add(new PersonaPlan(persona, null, List.of(), List.of(), List.of(), null));
                 continue;
             }
             List<PlannedCommit> commits = commitsByEmail.get(persona.email());
+            List<PlannedReview> reviews = new ArrayList<>(reviewsByEmail.get(persona.email()));
+            reviews.sort(Comparator.comparing(PlannedReview::reviewedAt));
             plans.add(new PersonaPlan(persona, syncedAtByEmail.get(persona.email()), commits,
+                    pullRequestsByEmail.get(persona.email()), List.copyOf(reviews),
                     insightFor(persona, commits, today, busiestWindowCount)));
         }
         return new DemoDataset(today, List.copyOf(plans));
@@ -215,6 +247,117 @@ final class DemoDataset {
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-1 is required by every Java runtime", exception);
         }
+    }
+
+    // ---- pull requests --------------------------------------------------------------------------------------
+
+    /**
+     * Groups each repo's commits into pull requests of two to five commits (split early by a gap of more than
+     * {@link #PULL_REQUEST_MAX_GAP_DAYS} days). Most merge within hours of their last commit, a few close unmerged,
+     * and anything that would resolve after the last sync is still open. The fading persona's latest PR is left
+     * open, which is the kind of stale work a manager wants to spot.
+     */
+    private static List<PlannedPullRequest> pullRequestsFor(Persona persona, List<PlannedCommit> commits,
+                                                            Instant lastSyncedAt) {
+        Map<Repo, List<PlannedCommit>> byRepo = new LinkedHashMap<>();
+        commits.forEach(commit -> byRepo.computeIfAbsent(commit.repo(), repo -> new ArrayList<>()).add(commit));
+
+        List<PlannedPullRequest> pullRequests = new ArrayList<>();
+        for (List<PlannedCommit> repoCommits : byRepo.values()) {
+            List<PlannedCommit> chunk = new ArrayList<>();
+            Random random = null;
+            int target = 0;
+            for (PlannedCommit commit : repoCommits) {
+                boolean full = chunk.size() >= target;
+                boolean gap = !chunk.isEmpty() && ChronoUnit.DAYS.between(day(chunk.get(chunk.size() - 1)), day(commit))
+                        > PULL_REQUEST_MAX_GAP_DAYS;
+                if (!chunk.isEmpty() && (full || gap)) {
+                    pullRequests.add(toPullRequest(chunk, random, lastSyncedAt));
+                    chunk = new ArrayList<>();
+                }
+                if (chunk.isEmpty()) {
+                    random = new Random(pullRequestSeed(commit.sha()));
+                    target = 2 + random.nextInt(4);
+                }
+                chunk.add(commit);
+            }
+            if (!chunk.isEmpty()) {
+                pullRequests.add(toPullRequest(chunk, random, lastSyncedAt));
+            }
+        }
+        pullRequests.sort(Comparator.comparing(PlannedPullRequest::openedAt));
+
+        if (persona.rhythm().pace() == Pace.FADING && !pullRequests.isEmpty()) {
+            PlannedPullRequest latest = pullRequests.get(pullRequests.size() - 1);
+            pullRequests.set(pullRequests.size() - 1, new PlannedPullRequest(latest.repo(), latest.id(),
+                    latest.number(), latest.title(), latest.openedAt(), null, null, latest.updatedAt()));
+        }
+        return List.copyOf(pullRequests);
+    }
+
+    private static PlannedPullRequest toPullRequest(List<PlannedCommit> chunk, Random random, Instant lastSyncedAt) {
+        PlannedCommit first = chunk.get(0);
+        PlannedCommit last = chunk.get(chunk.size() - 1);
+        double outcomeRoll = random.nextDouble();
+        // Squaring skews toward quick merges with a tail of up to two days.
+        double delayRoll = random.nextDouble();
+        long minutesAfterLastCommit = 20 + Math.round(delayRoll * delayRoll * 48 * 60);
+        Instant resolvedAt = last.authoredAt().plus(minutesAfterLastCommit, ChronoUnit.MINUTES);
+
+        long id = mix(pullRequestSeed(first.sha())) & Long.MAX_VALUE;
+        int number = 100 + (int) Math.floorMod(id, 4900L);
+        Instant mergedAt = null;
+        Instant closedAt = null;
+        if (resolvedAt.isBefore(lastSyncedAt)) {
+            closedAt = resolvedAt;
+            mergedAt = outcomeRoll < CLOSED_WITHOUT_MERGE_CHANCE ? null : resolvedAt;
+        }
+        return new PlannedPullRequest(first.repo(), id, number, first.message(), first.authoredAt(), mergedAt,
+                closedAt, closedAt != null ? closedAt : last.authoredAt());
+    }
+
+    /**
+     * Every PR gets one reviewer from the rest of the connected team, with the manager twice as likely as anyone
+     * else. A review lands partway between opening and resolution (within a day for open PRs), never after the
+     * reviewer's last sync, and never while the fading persona has gone quiet.
+     */
+    private static void assignReviews(Map<String, List<PlannedPullRequest>> pullRequestsByEmail,
+                                      Map<String, List<PlannedReview>> reviewsByEmail,
+                                      Map<String, Instant> syncedAtByEmail, LocalDate today) {
+        List<Persona> connected = DemoTeam.PERSONAS.stream().filter(Persona::connected).toList();
+        for (Persona author : connected) {
+            List<Persona> candidates = new ArrayList<>();
+            for (Persona candidate : connected) {
+                if (!candidate.equals(author)) {
+                    candidates.add(candidate);
+                    if (candidate.role() == DpUserRole.MANAGER) {
+                        candidates.add(candidate);
+                    }
+                }
+            }
+            if (candidates.isEmpty()) {
+                continue;
+            }
+            for (PlannedPullRequest pullRequest : pullRequestsByEmail.get(author.email())) {
+                Random random = new Random(mix(pullRequest.id() ^ PULL_REQUEST_SALT));
+                Persona reviewer = candidates.get(random.nextInt(candidates.size()));
+                Instant end = pullRequest.closedAt() != null
+                        ? pullRequest.closedAt()
+                        : pullRequest.openedAt().plus(1, ChronoUnit.DAYS);
+                long spanSeconds = Math.max(60, end.getEpochSecond() - pullRequest.openedAt().getEpochSecond());
+                Instant reviewedAt = pullRequest.openedAt()
+                        .plusSeconds(Math.round(spanSeconds * (0.2 + 0.6 * random.nextDouble())));
+                long daysAgo = ChronoUnit.DAYS.between(LocalDate.ofInstant(reviewedAt, ZoneOffset.UTC), today);
+                boolean quiet = reviewer.rhythm().pace() == Pace.FADING && daysAgo < FADING_STOP_DAYS_AGO;
+                if (!quiet && reviewedAt.isBefore(syncedAtByEmail.get(reviewer.email()))) {
+                    reviewsByEmail.get(reviewer.email()).add(new PlannedReview(pullRequest, reviewedAt));
+                }
+            }
+        }
+    }
+
+    private static long pullRequestSeed(String firstSha) {
+        return mix(BASE_SEED ^ PULL_REQUEST_SALT ^ Long.parseUnsignedLong(firstSha.substring(0, 15), 16));
     }
 
     // ---- insights -------------------------------------------------------------------------------------------

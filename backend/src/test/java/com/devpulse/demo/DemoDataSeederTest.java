@@ -25,8 +25,11 @@ import com.devpulse.integration.github.GitHubAccount;
 import com.devpulse.integration.github.GitHubAccountRepository;
 import com.devpulse.integration.github.GitHubAccountRepository.AccountSummary;
 import com.devpulse.sync.domain.GitHubCommit;
+import com.devpulse.sync.domain.GitHubPullRequest;
+import com.devpulse.sync.domain.GitHubPullRequest.Relation;
 import com.devpulse.sync.domain.GitHubRepo;
 import com.devpulse.sync.persistence.GitHubCommitRepository;
+import com.devpulse.sync.persistence.GitHubPullRequestRepository;
 import com.devpulse.sync.persistence.GitHubRepoRepository;
 import com.devpulse.user.domain.DpUser;
 import com.devpulse.user.domain.DpUserRole;
@@ -75,6 +78,7 @@ class DemoDataSeederTest {
     @Mock private GitHubAccountRepository accountRepository;
     @Mock private GitHubRepoRepository repoRepository;
     @Mock private GitHubCommitRepository commitRepository;
+    @Mock private GitHubPullRequestRepository pullRequestRepository;
     @Mock private InsightRepository insightRepository;
     @Mock private PasswordEncoder passwordEncoder;
 
@@ -88,13 +92,14 @@ class DemoDataSeederTest {
     private final List<GitHubAccount> savedAccounts = new ArrayList<>();
     private final List<GitHubRepo> savedRepos = new ArrayList<>();
     private final List<List<GitHubCommit>> commitBatches = new ArrayList<>();
+    private final List<GitHubPullRequest> savedPullRequests = new ArrayList<>();
     private final List<Insight> savedInsights = new ArrayList<>();
     private final List<String> rawPasswords = new ArrayList<>();
 
     @BeforeEach
     void wireFakeStore() {
         seeder = new DemoDataSeeder(userRepository, accountRepository, repoRepository, commitRepository,
-                insightRepository, passwordEncoder);
+                pullRequestRepository, insightRepository, passwordEncoder);
 
         when(userRepository.findByEmailIn(anyCollection())).thenAnswer(invocation -> {
             Collection<String> emails = invocation.getArgument(0);
@@ -142,6 +147,11 @@ class DemoDataSeederTest {
             commitBatches.add(saved);
             return saved;
         });
+        when(pullRequestRepository.saveAll(anyIterable())).thenAnswer(invocation -> {
+            List<GitHubPullRequest> saved = list(invocation.getArgument(0));
+            savedPullRequests.addAll(saved);
+            return saved;
+        });
         when(insightRepository.saveAll(anyIterable())).thenAnswer(invocation -> {
             List<Insight> saved = list(invocation.getArgument(0));
             savedInsights.addAll(saved);
@@ -170,7 +180,8 @@ class DemoDataSeederTest {
         assertThat(result.seeded()).isFalse();
         verify(userRepository, never()).save(any());
         verify(userRepository, never()).saveAll(anyIterable());
-        verifyNoInteractions(accountRepository, repoRepository, commitRepository, insightRepository, passwordEncoder);
+        verifyNoInteractions(accountRepository, repoRepository, commitRepository, pullRequestRepository, insightRepository,
+                passwordEncoder);
         assertThat(realAccount.isDemo()).isFalse();
         assertThat(realAccount.getName()).isEqualTo("Someone Real");
         assertThat(realAccount.getRole()).isEqualTo(DpUserRole.ADMIN);
@@ -246,6 +257,38 @@ class DemoDataSeederTest {
         order.verify(repoRepository).saveAllAndFlush(anyIterable());
         order.verify(commitRepository, atLeastOnce()).saveAll(anyIterable());
         order.verify(insightRepository).saveAll(anyIterable());
+    }
+
+    @Test
+    void seedsAuthoredPullRequestsAndTeammateReviewsForConnectedAccounts() {
+        seeder.seed(NOW);
+        Map<UUID, GitHubAccount> accountById = savedAccounts.stream()
+                .collect(Collectors.toMap(GitHubAccount::getId, Function.identity()));
+        List<GitHubPullRequest> authored = savedPullRequests.stream()
+                .filter(pr -> pr.getRelation() == Relation.AUTHORED).toList();
+        List<GitHubPullRequest> reviewed = savedPullRequests.stream()
+                .filter(pr -> pr.getRelation() == Relation.REVIEWED).toList();
+        Map<Long, UUID> authorAccountByPrId = authored.stream()
+                .collect(Collectors.toMap(GitHubPullRequest::getGithubPrId, GitHubPullRequest::getGithubAccountId));
+
+        assertThat(authored).hasSizeGreaterThan(50);
+        assertThat(reviewed).hasSizeGreaterThan(30);
+        assertThat(savedPullRequests).allSatisfy(pr -> {
+            assertThat(accountById).containsKey(pr.getGithubAccountId());
+            assertThat(pr.getOpenedAt()).isBefore(NOW).isAfterOrEqualTo(TODAY.minusDays(89).atStartOfDay(ZoneOffset.UTC).toInstant());
+            if (pr.getMergedAt() != null) {
+                assertThat(pr.getMergedAt()).isAfter(pr.getOpenedAt()).isBefore(NOW).isEqualTo(pr.getClosedAt());
+            }
+        });
+        // Every review is of a teammate's PR (never one's own) and happens after it opened.
+        assertThat(reviewed).allSatisfy(pr -> {
+            assertThat(authorAccountByPrId).containsKey(pr.getGithubPrId());
+            assertThat(authorAccountByPrId.get(pr.getGithubPrId())).isNotEqualTo(pr.getGithubAccountId());
+            assertThat(pr.getReviewedAt()).isAfter(pr.getOpenedAt()).isBefore(NOW);
+        });
+        assertThat(authored).anySatisfy(pr -> assertThat(pr.getMergedAt()).isNull());
+        assertThat(savedAccounts).allSatisfy(account ->
+                assertThat(account.getLastPullRequestsSyncedAt()).isEqualTo(account.getLastSyncedAt()));
     }
 
     @Test
@@ -467,6 +510,7 @@ class DemoDataSeederTest {
         savedAccounts.clear();
         savedRepos.clear();
         commitBatches.clear();
+        savedPullRequests.clear();
         savedInsights.clear();
     }
 

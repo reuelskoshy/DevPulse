@@ -3,8 +3,10 @@ package com.devpulse.team;
 import com.devpulse.integration.github.GitHubAccount;
 import com.devpulse.integration.github.GitHubAccountRepository;
 import com.devpulse.sync.domain.GitHubCommit;
+import com.devpulse.sync.domain.GitHubPullRequest;
 import com.devpulse.sync.domain.GitHubRepo;
 import com.devpulse.sync.persistence.GitHubCommitRepository;
+import com.devpulse.sync.persistence.GitHubPullRequestRepository;
 import com.devpulse.user.domain.DpUser;
 import jakarta.persistence.EntityManager;
 import org.hibernate.SessionFactory;
@@ -34,6 +36,7 @@ class TeamActivityQueriesTest {
                 .addAnnotatedClass(GitHubAccount.class)
                 .addAnnotatedClass(GitHubRepo.class)
                 .addAnnotatedClass(GitHubCommit.class)
+                .addAnnotatedClass(GitHubPullRequest.class)
                 .setProperty("hibernate.dialect", "org.hibernate.dialect.MySQLDialect")
                 .setProperty("hibernate.boot.allow_jdbc_metadata_access", "false")
                 .setProperty("hibernate.hbm2ddl.auto", "none")
@@ -60,6 +63,12 @@ class TeamActivityQueriesTest {
     @Test
     void accountRepositoryQueriesAreValidAgainstTheEntityModel() {
         assertThatCode(() -> new JpaRepositoryFactory(entityManager).getRepository(GitHubAccountRepository.class))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void pullRequestRepositoryQueriesAreValidAgainstTheEntityModel() {
+        assertThatCode(() -> new JpaRepositoryFactory(entityManager).getRepository(GitHubPullRequestRepository.class))
                 .doesNotThrowAnyException();
     }
 

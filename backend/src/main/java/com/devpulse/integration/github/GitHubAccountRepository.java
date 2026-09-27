@@ -30,11 +30,14 @@ public interface GitHubAccountRepository extends JpaRepository<GitHubAccount, UU
 
     /**
      * When the live demo was last seeded: the seeder recreates every demo user's GitHub account, so the newest
-     * {@code connectedAt} among them is the time of the last successful seed. Empty when no demo account exists.
+     * {@code connectedAt} among them is the time of the last successful seed. Empty when no demo account exists,
+     * and also for a seed from before pull requests were part of the demo (no PR sync time), so that one gets
+     * replaced right away instead of on the next UTC day.
      */
     @Query("""
             select max(a.connectedAt) from GitHubAccount a
             where a.userId in (select u.id from DpUser u where u.demo = true)
+              and a.lastPullRequestsSyncedAt is not null
             """)
     Optional<Instant> findLatestDemoConnectedAt();
 

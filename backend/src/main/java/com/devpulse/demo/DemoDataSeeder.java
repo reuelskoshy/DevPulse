@@ -14,6 +14,8 @@ import java.util.UUID;
 
 import com.devpulse.demo.DemoDataset.PersonaPlan;
 import com.devpulse.demo.DemoDataset.PlannedCommit;
+import com.devpulse.demo.DemoDataset.PlannedPullRequest;
+import com.devpulse.demo.DemoDataset.PlannedReview;
 import com.devpulse.demo.DemoTeam.Persona;
 import com.devpulse.demo.DemoTeam.RepoWeight;
 import com.devpulse.insights.domain.Insight;
@@ -21,10 +23,14 @@ import com.devpulse.insights.persistence.InsightRepository;
 import com.devpulse.integration.github.GitHubAccount;
 import com.devpulse.integration.github.GitHubAccountRepository;
 import com.devpulse.integration.github.GitHubAccountRepository.AccountSummary;
+import com.devpulse.integration.github.GitHubPullRequestDto;
 import com.devpulse.integration.github.GitHubRepoDto;
 import com.devpulse.sync.domain.GitHubCommit;
+import com.devpulse.sync.domain.GitHubPullRequest;
+import com.devpulse.sync.domain.GitHubPullRequest.Relation;
 import com.devpulse.sync.domain.GitHubRepo;
 import com.devpulse.sync.persistence.GitHubCommitRepository;
+import com.devpulse.sync.persistence.GitHubPullRequestRepository;
 import com.devpulse.sync.persistence.GitHubRepoRepository;
 import com.devpulse.user.domain.DpUser;
 import com.devpulse.user.domain.DpUserRole;
@@ -40,7 +46,8 @@ import org.springframework.transaction.annotation.Transactional;
  * Writes the demo team and its generated GitHub history in one transaction.
  *
  * <p>Users are upserted by email and keep their ids forever, so demo sessions issued before a reseed stay valid.
- * Everything hanging off a demo user (GitHub account, and through ON DELETE CASCADE its repos and commits, plus
+ * Everything hanging off a demo user (GitHub account, and through ON DELETE CASCADE its repos, commits and pull
+ * requests, plus
  * AI insights) is replaced. Only rows belonging to users with {@code demo = true} are ever modified or deleted, and
  * if a reserved demo address already belongs to a real account the seed is refused before anything is written.
  *
@@ -57,16 +64,19 @@ public class DemoDataSeeder {
     private final GitHubAccountRepository accountRepository;
     private final GitHubRepoRepository repoRepository;
     private final GitHubCommitRepository commitRepository;
+    private final GitHubPullRequestRepository pullRequestRepository;
     private final InsightRepository insightRepository;
     private final PasswordEncoder passwordEncoder;
 
     public DemoDataSeeder(DpUserRepository userRepository, GitHubAccountRepository accountRepository,
                           GitHubRepoRepository repoRepository, GitHubCommitRepository commitRepository,
-                          InsightRepository insightRepository, PasswordEncoder passwordEncoder) {
+                          GitHubPullRequestRepository pullRequestRepository, InsightRepository insightRepository,
+                          PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.accountRepository = accountRepository;
         this.repoRepository = repoRepository;
         this.commitRepository = commitRepository;
+        this.pullRequestRepository = pullRequestRepository;
         this.insightRepository = insightRepository;
         this.passwordEncoder = passwordEncoder;
     }
@@ -116,6 +126,7 @@ public class DemoDataSeeder {
                 GitHubAccount account = new GitHubAccount(usersByEmail.get(persona.email()).getId(),
                         persona.github().userId(), persona.login(), null, DemoTeam.DEMO_ACCESS_TOKEN);
                 account.setLastSyncedAt(plan.lastSyncedAt());
+                account.setLastPullRequestsSyncedAt(plan.lastSyncedAt());
                 accounts.add(account);
             }
         }
@@ -135,6 +146,7 @@ public class DemoDataSeeder {
         repoRepository.saveAllAndFlush(repos).forEach(repo -> repoByKey.put(repoKey(repo.getGithubAccountId(), repo.getGithubRepoId()), repo));
 
         List<GitHubCommit> commits = new ArrayList<>();
+        List<GitHubPullRequest> pullRequests = new ArrayList<>();
         List<Insight> insights = new ArrayList<>();
         for (PersonaPlan plan : dataset.plans()) {
             if (!plan.persona().connected()) {
@@ -148,11 +160,23 @@ public class DemoDataSeeder {
                 commits.add(new GitHubCommit(repo, planned.sha(), planned.message(), persona.login(), persona.name(),
                         planned.authoredAt()));
             }
+            for (PlannedPullRequest planned : plan.pullRequests()) {
+                pullRequests.add(pullRequestRow(accountId, planned, Relation.AUTHORED));
+            }
+            for (PlannedReview review : plan.reviews()) {
+                GitHubPullRequest row = pullRequestRow(accountId, review.pullRequest(), Relation.REVIEWED);
+                row.setReviewedAt(review.reviewedAt());
+                pullRequests.add(row);
+            }
             insights.add(new Insight(user.getId(), plan.insight().summary(), plan.insight().commitCount(),
                     plan.insight().repoCount()));
         }
         for (int from = 0; from < commits.size(); from += COMMIT_BATCH_SIZE) {
             commitRepository.saveAll(commits.subList(from, Math.min(from + COMMIT_BATCH_SIZE, commits.size())));
+        }
+        for (int from = 0; from < pullRequests.size(); from += COMMIT_BATCH_SIZE) {
+            pullRequestRepository.saveAll(
+                    pullRequests.subList(from, Math.min(from + COMMIT_BATCH_SIZE, pullRequests.size())));
         }
         insightRepository.saveAll(insights);
 
@@ -230,6 +254,13 @@ public class DemoDataSeeder {
                 DemoTeam.DEFAULT_BRANCH, lastPushedAt));
         gitHubRepo.setLastCommitSyncedAt(plan.lastSyncedAt());
         return gitHubRepo;
+    }
+
+    private static GitHubPullRequest pullRequestRow(UUID accountId, PlannedPullRequest planned, Relation relation) {
+        GitHubPullRequest row = new GitHubPullRequest(accountId, planned.id(), relation);
+        row.applyRemote(new GitHubPullRequestDto(planned.id(), planned.repo().fullName(), planned.number(),
+                planned.title(), planned.openedAt(), planned.mergedAt(), planned.closedAt(), planned.updatedAt()));
+        return row;
     }
 
     private static String repoKey(UUID accountId, long githubRepoId) {

@@ -63,6 +63,14 @@ export function formatRelativeTime(iso: string | null | undefined, now: number):
 }
 
 /** Thousands-separated integer. */
+/** Compact duration for hour counts: "45m", "5.5h", "3.2d". Null reads as an en dash. */
+export function formatHours(hours: number | null | undefined): string {
+  if (hours === null || hours === undefined || !Number.isFinite(hours)) return '–'
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`
+  if (hours < 48) return `${Number(hours.toFixed(1))}h`
+  return `${Number((hours / 24).toFixed(1))}d`
+}
+
 export function formatCount(value: number): string {
   return NUMBER.format(value)
 }

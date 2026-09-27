@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 
 import com.devpulse.demo.DemoDataset.PersonaPlan;
 import com.devpulse.demo.DemoDataset.PlannedCommit;
+import com.devpulse.demo.DemoDataset.PlannedPullRequest;
 import com.devpulse.demo.DemoTeam.Pace;
 import com.devpulse.demo.DemoTeam.Persona;
 import com.devpulse.demo.DemoTeam.Repo;
@@ -108,7 +109,51 @@ class DemoDatasetTest {
             assertThat(plan.commits()).isEmpty();
             assertThat(plan.lastSyncedAt()).isNull();
             assertThat(plan.insight()).isNull();
+            assertThat(plan.pullRequests()).isEmpty();
+            assertThat(plan.reviews()).isEmpty();
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"2026-09-27T15:30:00Z", "2026-09-28T06:10:00Z", "2027-02-14T12:00:00Z"})
+    void pullRequestsTellTheSameStoryAsTheCommits(String nowText) {
+        Instant now = Instant.parse(nowText);
+        DemoDataset dataset = DemoDataset.generate(now);
+        Instant windowStart = dataset.today().minusDays(DemoDataset.INSIGHT_WINDOW_DAYS - 1L)
+                .atStartOfDay(ZoneOffset.UTC).toInstant();
+
+        List<PlannedPullRequest> all = connected(dataset).stream().flatMap(plan -> plan.pullRequests().stream()).toList();
+        assertThat(all).extracting(PlannedPullRequest::id).doesNotHaveDuplicates();
+        for (PersonaPlan plan : connected(dataset)) {
+            assertThat(plan.pullRequests()).allSatisfy(pr -> {
+                assertThat(pr.openedAt()).isBefore(plan.lastSyncedAt());
+                if (pr.closedAt() != null) {
+                    assertThat(pr.closedAt()).isAfter(pr.openedAt()).isBefore(plan.lastSyncedAt());
+                }
+                if (pr.mergedAt() != null) {
+                    assertThat(pr.mergedAt()).isEqualTo(pr.closedAt());
+                }
+            });
+            assertThat(plan.reviews()).allSatisfy(review -> {
+                assertThat(review.reviewedAt()).isAfter(review.pullRequest().openedAt()).isBefore(plan.lastSyncedAt());
+                assertThat(plan.pullRequests()).as("nobody reviews their own PR").doesNotContain(review.pullRequest());
+            });
+            if (plan.persona().rhythm().pace() != Pace.FADING) {
+                assertThat(plan.pullRequests()).as(plan.persona().name() + " merged work recently")
+                        .anySatisfy(pr -> assertThat(pr.mergedAt()).isAfterOrEqualTo(windowStart));
+            }
+        }
+
+        PersonaPlan fading = plan(dataset, Pace.FADING);
+        assertThat(fading.pullRequests().get(fading.pullRequests().size() - 1))
+                .as("the quiet member has a stale open PR")
+                .satisfies(pr -> assertThat(pr.mergedAt()).isNull());
+        assertThat(fading.reviews()).noneSatisfy(review ->
+                assertThat(review.reviewedAt()).isAfterOrEqualTo(windowStart));
+
+        PersonaPlan manager = plan(dataset, Pace.MODERATE);
+        assertThat(manager.reviews().size()).as("the manager reviews the most")
+                .isGreaterThanOrEqualTo(connected(dataset).stream().mapToInt(plan -> plan.reviews().size()).max().orElseThrow());
     }
 
     @Test

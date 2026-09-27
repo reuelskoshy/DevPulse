@@ -6,9 +6,11 @@ import {
   ArrowClockwise,
   GitBranch,
   GitCommit,
+  GitPullRequest,
   GithubLogo,
   LinkBreak,
   PlugsConnected,
+  Timer,
   UserPlus,
   UsersThree,
 } from '@phosphor-icons/react'
@@ -27,6 +29,7 @@ import { Sparkline } from '../components/charts/Sparkline'
 import { TeamActivityChart } from '../components/charts/TeamActivityChart'
 import {
   formatCount,
+  formatHours,
   formatInstant,
   formatRelativeTime,
   formatUtcDayLong,
@@ -47,6 +50,7 @@ function scopePhrase(role: string | undefined): string {
 
 function TotalsBento({ data }: { data: TeamActivity }) {
   const { totals } = data
+  const { pullRequests } = totals
   const members = Math.max(totals.members, 0)
   const tiles: StatTileProps[] = [
     {
@@ -82,10 +86,24 @@ function TotalsBento({ data }: { data: TeamActivity }) {
       tone: 'accent',
       ratio: members > 0 ? totals.connectedMembers / members : 0,
     },
+    {
+      label: 'PRs merged',
+      value: formatCount(pullRequests.merged),
+      caption: `${formatCount(pullRequests.opened)} opened · ${formatCount(pullRequests.open)} still open`,
+      icon: GitPullRequest,
+      tone: 'accent-2',
+    },
+    {
+      label: 'Median time to merge',
+      value: formatHours(pullRequests.medianHoursToMerge),
+      caption: `opened to merged · ${formatCount(pullRequests.reviews)} ${pluralize(pullRequests.reviews, 'review')}`,
+      icon: Timer,
+      tone: 'accent',
+    },
   ]
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
       {tiles.map((tile, index) => (
         <Reveal key={tile.label} delay={0.05 * index}>
           <StatTile {...tile} />
@@ -254,6 +272,16 @@ function MemberCard({ member, days, sparkMax, now }: MemberCardProps) {
         <MemberStat label="Last commit" title={formatInstant(member.lastCommitAt)}>
           {lastCommit ?? <span className="font-normal text-[var(--text-muted)]">No commits in range</span>}
         </MemberStat>
+        <MemberStat label="PRs merged">
+          {formatCount(member.pullRequests.merged)}
+          {member.pullRequests.open > 0 && (
+            <span className="ml-1 font-normal text-[var(--text-muted)]">+{formatCount(member.pullRequests.open)} open</span>
+          )}
+        </MemberStat>
+        <MemberStat label="Reviews">{formatCount(member.pullRequests.reviews)}</MemberStat>
+        <MemberStat label="Time to merge" title="Median time from opening a PR to merging it">
+          {formatHours(member.pullRequests.medianHoursToMerge)}
+        </MemberStat>
       </dl>
 
       {member.topRepos.length > 0 && (
@@ -339,8 +367,8 @@ function TeamSkeleton() {
     <div role="status" aria-live="polite">
       <span className="sr-only">Loading team activity…</span>
       <div aria-hidden="true" className="animate-pulse motion-reduce:animate-none">
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((index) => (
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+          {[0, 1, 2, 3, 4, 5].map((index) => (
             <DoubleBezel key={index} size="md" innerClassName="flex h-40 flex-col justify-between p-6">
               <SkeletonBar className="h-2 w-24" />
               <div>
@@ -357,7 +385,7 @@ function TeamSkeleton() {
         </DoubleBezel>
         <div className="mt-16 grid grid-cols-1 gap-4 sm:mt-24 md:grid-cols-2">
           {[0, 1, 2, 3].map((index) => (
-            <DoubleBezel key={index} size="md" innerClassName="flex h-60 flex-col gap-5 p-6">
+            <DoubleBezel key={index} size="md" innerClassName="flex h-72 flex-col gap-5 p-6">
               <div className="flex items-center gap-3">
                 <div className="h-11 w-11 rounded-full bg-white/[0.06]" />
                 <div className="flex-1">
@@ -366,7 +394,7 @@ function TeamSkeleton() {
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-3">
-                {[0, 1, 2].map((cell) => (
+                {[0, 1, 2, 3, 4, 5].map((cell) => (
                   <div key={cell}>
                     <SkeletonBar className="h-2 w-14" />
                     <SkeletonBar className="mt-2 h-3 w-10" />

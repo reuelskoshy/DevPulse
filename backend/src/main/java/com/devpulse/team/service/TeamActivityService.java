@@ -1,6 +1,7 @@
 package com.devpulse.team.service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -20,11 +21,15 @@ import com.devpulse.common.exception.NotFoundException;
 import com.devpulse.common.security.UserPrincipal;
 import com.devpulse.integration.github.GitHubAccountRepository;
 import com.devpulse.integration.github.GitHubAccountRepository.AccountSummary;
+import com.devpulse.sync.domain.GitHubPullRequest.Relation;
 import com.devpulse.sync.persistence.GitHubCommitRepository;
 import com.devpulse.sync.persistence.GitHubCommitRepository.CommitActivityRow;
+import com.devpulse.sync.persistence.GitHubPullRequestRepository;
+import com.devpulse.sync.persistence.GitHubPullRequestRepository.PullRequestActivityRow;
 import com.devpulse.team.api.TeamActivityResponse;
 import com.devpulse.team.api.TeamActivityResponse.DailyCommits;
 import com.devpulse.team.api.TeamActivityResponse.Member;
+import com.devpulse.team.api.TeamActivityResponse.PullRequestStats;
 import com.devpulse.team.api.TeamActivityResponse.RepoCommits;
 import com.devpulse.team.api.TeamActivityResponse.Totals;
 import com.devpulse.user.domain.DpUser;
@@ -53,20 +58,24 @@ public class TeamActivityService {
     private final DpUserRepository userRepository;
     private final GitHubAccountRepository accountRepository;
     private final GitHubCommitRepository commitRepository;
+    private final GitHubPullRequestRepository pullRequestRepository;
     private final Clock clock;
 
     @Autowired
     public TeamActivityService(DpUserRepository userRepository, GitHubAccountRepository accountRepository,
-                               GitHubCommitRepository commitRepository) {
-        this(userRepository, accountRepository, commitRepository, Clock.systemUTC());
+                               GitHubCommitRepository commitRepository,
+                               GitHubPullRequestRepository pullRequestRepository) {
+        this(userRepository, accountRepository, commitRepository, pullRequestRepository, Clock.systemUTC());
     }
 
     /** Lets tests pin "today"; production uses the system UTC clock. */
     public TeamActivityService(DpUserRepository userRepository, GitHubAccountRepository accountRepository,
-                               GitHubCommitRepository commitRepository, Clock clock) {
+                               GitHubCommitRepository commitRepository,
+                               GitHubPullRequestRepository pullRequestRepository, Clock clock) {
         this.userRepository = userRepository;
         this.accountRepository = accountRepository;
         this.commitRepository = commitRepository;
+        this.pullRequestRepository = pullRequestRepository;
         this.clock = clock;
     }
 
@@ -95,6 +104,7 @@ public class TeamActivityService {
         members.forEach(member -> tallyByUserId.put(member.getId(), new Tally(days)));
         int[] teamDaily = new int[days];
         Set<String> reposTouched = new HashSet<>();
+        PullRequestTally teamPullRequests = new PullRequestTally();
 
         // An empty IN list is invalid SQL, and with no accounts there is nothing to count anyway.
         if (!accountByUserId.isEmpty()) {
@@ -118,6 +128,15 @@ public class TeamActivityService {
                     reposTouched.add(row.getRepoFullName());
                 }
             }
+
+            for (PullRequestActivityRow row : pullRequestRepository.findActivityByAccountIdsSince(
+                    userIdByAccountId.keySet(), windowStart)) {
+                UUID userId = userIdByAccountId.get(row.getAccountId());
+                if (userId != null) {
+                    tallyByUserId.get(userId).pullRequests.add(row, windowStart, windowEnd);
+                    teamPullRequests.add(row, windowStart, windowEnd);
+                }
+            }
         }
 
         List<Member> memberResponses = members.stream()
@@ -131,7 +150,8 @@ public class TeamActivityService {
                 (int) memberResponses.stream().filter(Member::connected).count(),
                 (int) memberResponses.stream().filter(member -> member.commits() > 0).count(),
                 memberResponses.stream().mapToInt(Member::commits).sum(),
-                reposTouched.size());
+                reposTouched.size(),
+                teamPullRequests.stats());
 
         return new TeamActivityResponse(days, from, to, totals, series(from, teamDaily), memberResponses);
     }
@@ -180,7 +200,8 @@ public class TeamActivityService {
                 tally.activeDays(),
                 tally.lastCommitAt,
                 topRepos,
-                series(from, tally.daily));
+                series(from, tally.daily),
+                tally.pullRequests.stats());
     }
 
     private static List<DailyCommits> series(LocalDate from, int[] counts) {
@@ -191,7 +212,57 @@ public class TeamActivityService {
         return series;
     }
 
+    /** Counts pull request events inside [windowStart, windowEnd), for one member or the whole team. */
+    private static final class PullRequestTally {
+        private final List<Long> minutesToMerge = new ArrayList<>();
+        private int opened;
+        private int merged;
+        private int open;
+        private int reviews;
+
+        private void add(PullRequestActivityRow row, Instant windowStart, Instant windowEnd) {
+            if (row.getRelation() == Relation.REVIEWED) {
+                if (within(row.getReviewedAt(), windowStart, windowEnd)) {
+                    reviews++;
+                }
+                return;
+            }
+            if (within(row.getOpenedAt(), windowStart, windowEnd)) {
+                opened++;
+            }
+            if (row.getMergedAt() == null && row.getClosedAt() == null) {
+                open++;
+            }
+            if (within(row.getMergedAt(), windowStart, windowEnd) && row.getOpenedAt() != null) {
+                merged++;
+                minutesToMerge.add(Math.max(0, Duration.between(row.getOpenedAt(), row.getMergedAt()).toMinutes()));
+            }
+        }
+
+        private PullRequestStats stats() {
+            return new PullRequestStats(opened, merged, open, reviews, medianHours(minutesToMerge));
+        }
+
+        private static boolean within(Instant instant, Instant windowStart, Instant windowEnd) {
+            return instant != null && !instant.isBefore(windowStart) && instant.isBefore(windowEnd);
+        }
+
+        /** Median in hours, rounded to one decimal place. */
+        private static Double medianHours(List<Long> minutes) {
+            if (minutes.isEmpty()) {
+                return null;
+            }
+            List<Long> sorted = minutes.stream().sorted().toList();
+            int middle = sorted.size() / 2;
+            double median = sorted.size() % 2 == 1
+                    ? sorted.get(middle)
+                    : (sorted.get(middle - 1) + sorted.get(middle)) / 2.0;
+            return Math.round(median / 60.0 * 10) / 10.0;
+        }
+    }
+
     private static final class Tally {
+        private final PullRequestTally pullRequests = new PullRequestTally();
         private final int[] daily;
         private final Map<String, Integer> commitsByRepo = new HashMap<>();
         private int commits;

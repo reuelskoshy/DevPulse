@@ -10,6 +10,7 @@ import com.devpulse.common.exception.ApiExceptionHandler;
 import com.devpulse.common.security.UserPrincipal;
 import com.devpulse.integration.github.GitHubAccountRepository;
 import com.devpulse.sync.persistence.GitHubCommitRepository;
+import com.devpulse.sync.persistence.GitHubPullRequestRepository;
 import com.devpulse.team.service.TeamActivityService;
 import com.devpulse.user.domain.DpUser;
 import com.devpulse.user.domain.DpUserRole;
@@ -49,6 +50,7 @@ class TeamActivityControllerTest {
     @Mock private DpUserRepository userRepository;
     @Mock private GitHubAccountRepository accountRepository;
     @Mock private GitHubCommitRepository commitRepository;
+    @Mock private GitHubPullRequestRepository pullRequestRepository;
 
     private final DpUser caller = new DpUser("Mia Member", "mia@example.com", "hashed-password", DpUserRole.MEMBER);
     private MockMvc mockMvc;
@@ -56,7 +58,7 @@ class TeamActivityControllerTest {
     @BeforeEach
     void setUp() {
         TeamActivityService service = new TeamActivityService(
-                userRepository, accountRepository, commitRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+                userRepository, accountRepository, commitRepository, pullRequestRepository, Clock.fixed(NOW, ZoneOffset.UTC));
         // Mirror Spring Boot's Jackson defaults (ISO-8601 strings for java.time types).
         var converter = new MappingJackson2HttpMessageConverter(Jackson2ObjectMapperBuilder.json()
                 .featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)

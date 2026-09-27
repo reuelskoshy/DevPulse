@@ -82,6 +82,7 @@ The connection requests `read:user` and `repo` scopes. The access token is encry
 
 - `POST /api/v1/integrations/github/sync` — pulls every repo the connected account can access and the account's own commits from the last 14 days (90 on first sync), deduplicated and safe to re-run.
 - **Automatic sync.** Every `AUTO_SYNC_CHECK_INTERVAL` (default 15 minutes), the API re-syncs connected, active, non-demo accounts whose last sync is older than `AUTO_SYNC_MAX_AGE` (default 6 hours), at most 25 per run. Accounts that have never synced go first, then the stalest. If one account fails, for example because its token was revoked, the API logs it, skips it, and retries it on a later run. Set `AUTO_SYNC_ENABLED=false` to turn this off.
+- **Pull requests.** Each sync also fetches, through GitHub's search API, the PRs the account authored and the PRs it reviewed (someone else's), updated since the last complete PR sync (90 days back the first time). For a reviewed PR, the review time is that account's first submitted review. A PR with only review comments falls back to the PR's last update. At most 60 review lookups run per sync. If there are more, the rest come on the next sync, and the PR window doesn't move forward until a sync gets through everything. If PR fetching fails (for example, the search rate limit is hit), the commit sync still succeeds and PRs catch up next time. PRs in private repos require the token's `repo` scope, just like commits.
 
 ## AI insights
 
@@ -91,9 +92,10 @@ The connection requests `read:user` and `repo` scopes. The access token is encry
 ## Team activity
 
 - `GET /api/v1/team/activity?days=14` — commit activity for everyone you can see, over the last `days` calendar days in UTC, ending today. `days` accepts 1–90 and defaults to 14; any other value returns 400.
-  - Team totals: members, connected members, active members, commits, and repos touched.
+  - Team totals: members, connected members, active members, commits, repos touched, and pull request stats.
   - A zero-filled daily team series.
-  - One entry per member: GitHub connection and login, last sync time, commits, active days, last commit time, top 3 repos, and a daily series.
+  - One entry per member: GitHub connection and login, last sync time, commits, active days, last commit time, top 3 repos, a daily series, and pull request stats.
+  - Pull request stats (`pullRequests`): PRs opened and merged in the range, PRs still open, reviews given in the range, and `medianHoursToMerge` (open to merge, for PRs merged in the range; `null` if none were merged).
   - Members are sorted by commits, then by name.
 
 Who sees whom follows the team roles. `ADMIN` sees everyone. `MANAGER` sees themselves and their direct reports (users whose `parent` is them). `MEMBER` sees only themselves. Demo users and real users never see each other. No tokens, phone numbers, or addresses are returned.

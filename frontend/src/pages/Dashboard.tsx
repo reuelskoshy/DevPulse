@@ -19,9 +19,11 @@ import { IslandButton } from '../components/IslandButton'
 import { Notice } from '../components/Notice'
 import type { NoticeState } from '../components/Notice'
 import { Reveal } from '../components/Reveal'
+import { ContributionHeatmap } from '../components/charts/ContributionHeatmap'
 import { TeamActivityChart } from '../components/charts/TeamActivityChart'
 import {
   formatCount,
+  formatHours,
   formatInstant,
   formatRelativeTime,
   formatUtcDayLong,
@@ -38,14 +40,18 @@ import {
   ClockCounterClockwise,
   GitBranch,
   GitCommit,
+  GitPullRequest,
   GithubLogo,
   LockSimple,
   Sparkle,
+  SquaresFour,
   UsersThree,
 } from '@phosphor-icons/react'
 import '../styles/theme.css'
 
 type DashboardAction = 'connect' | 'sync' | 'insight'
+
+const HEATMAP_DAYS = 90
 
 /**
  * Maps the OAuth callback's ?github_error reason to fixed copy. The raw param
@@ -165,6 +171,94 @@ function PersonalActivityCard({ self, data }: { self: TeamMemberActivity; data: 
   )
 }
 
+/* ------------------------------------------------------------------ heatmap + pull requests */
+
+function HeatmapCard({ self, isLoading }: { self: TeamMemberActivity | undefined; isLoading: boolean }) {
+  const activeDays = self?.activeDays ?? 0
+  const commits = self?.commits ?? 0
+  const label = self
+    ? `Contribution heatmap for the last ${self.daily.length} days: ${formatCount(commits)} ${pluralize(commits, 'commit')} on ${formatCount(activeDays)} ${pluralize(activeDays, 'day')}.`
+    : 'Contribution heatmap loading.'
+
+  return (
+    <DoubleBezel size="md" className="h-full" innerClassName="flex h-full flex-col gap-5 p-6 sm:p-8">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--text-muted)]">Last 90 days</span>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight text-white">Contribution heatmap</h2>
+          <p className="mt-1 text-xs text-[var(--text-muted)]">
+            {self
+              ? `${formatCount(commits)} ${pluralize(commits, 'commit')} on ${formatCount(activeDays)} of ${self.daily.length} days.`
+              : 'Loading your history…'}
+          </p>
+        </div>
+        <span
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+          style={{ background: 'var(--accent-soft)' }}
+        >
+          <SquaresFour weight="light" className="h-4 w-4" style={{ color: 'var(--accent)' }} />
+        </span>
+      </div>
+      {self ? (
+        <ContributionHeatmap daily={self.daily} label={label} />
+      ) : (
+        <div
+          aria-hidden="true"
+          className={`h-40 rounded-2xl bg-white/[0.03] ${isLoading ? 'animate-pulse motion-reduce:animate-none' : ''}`}
+        />
+      )}
+    </DoubleBezel>
+  )
+}
+
+function PullRequestStat({ label, value, caption }: { label: string; value: string; caption?: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[10px] uppercase tracking-[0.2em] text-[var(--text-muted)]">{label}</dt>
+      <dd className="mt-1.5 text-2xl font-semibold tabular-nums text-white">
+        {value}
+        {caption && <span className="ml-1.5 text-xs font-normal text-[var(--text-muted)]">{caption}</span>}
+      </dd>
+    </div>
+  )
+}
+
+function PullRequestCard({ self, days }: { self: TeamMemberActivity; days: number }) {
+  const stats = self.pullRequests
+  const empty = stats.opened + stats.merged + stats.open + stats.reviews === 0
+
+  return (
+    <DoubleBezel size="md" className="h-full" innerClassName="flex h-full flex-col gap-6 p-6 sm:p-8">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--text-muted)]">Pull requests</span>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight text-white">Review flow</h2>
+          <p className="mt-1 text-xs text-[var(--text-muted)]">Last {days} {pluralize(days, 'day')}.</p>
+        </div>
+        <span
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+          style={{ background: 'var(--accent-2-soft)' }}
+        >
+          <GitPullRequest weight="light" className="h-4 w-4" style={{ color: 'var(--accent-2)' }} />
+        </span>
+      </div>
+
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-5">
+        <PullRequestStat label="Merged" value={formatCount(stats.merged)} caption={`of ${formatCount(stats.opened)} opened`} />
+        <PullRequestStat label="Reviews given" value={formatCount(stats.reviews)} />
+        <PullRequestStat label="Time to merge" value={formatHours(stats.medianHoursToMerge)} caption="median" />
+        <PullRequestStat label="Open now" value={formatCount(stats.open)} />
+      </dl>
+
+      <p className="mt-auto text-xs text-[var(--text-muted)]">
+        {empty
+          ? 'No pull requests in this range yet. They sync alongside your commits.'
+          : 'Time to merge runs from opening a PR to merging it.'}
+      </p>
+    </DoubleBezel>
+  )
+}
+
 /* ------------------------------------------------------------------ repos + insight */
 
 function TopReposCard({ self, now }: { self: TeamMemberActivity; now: number }) {
@@ -261,6 +355,8 @@ function TeamTeaser({ data }: { data: TeamActivity }) {
         <div>
           <h3 className="text-base font-semibold text-white">
             Your team shipped {formatCount(data.totals.commits)} {pluralize(data.totals.commits, 'commit')}
+            {data.totals.pullRequests.merged > 0 &&
+              ` and merged ${formatCount(data.totals.pullRequests.merged)} ${pluralize(data.totals.pullRequests.merged, 'PR')}`}
           </h3>
           <p className="mt-1 text-sm text-white/60">
             {formatCount(data.totals.activeMembers)} of {formatCount(data.totals.members)} active, you plus {formatCount(others)}{' '}
@@ -377,6 +473,14 @@ export default function Dashboard() {
     placeholderData: keepPreviousData,
   })
   const self = activity?.members.find((member) => member.self)
+
+  // The heatmap always covers 90 days, whatever range the rest of the page shows.
+  const { data: history, isPending: historyPending } = useQuery({
+    queryKey: ['team-activity', HEATMAP_DAYS],
+    queryFn: () => teamApi.getActivity(HEATMAP_DAYS),
+    enabled: connected,
+  })
+  const selfHistory = history?.members.find((member) => member.self)
 
   // Relative times measure from the last real fetch, not from placeholder data (dataUpdatedAt 0).
   const lastFetchedAtRef = useRef(0)
@@ -630,6 +734,14 @@ export default function Dashboard() {
               <Reveal delay={0.1} className="mt-4">
                 <PersonalActivityCard self={self} data={activity} />
               </Reveal>
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-5">
+                <Reveal className="h-full md:col-span-3">
+                  <HeatmapCard self={selfHistory} isLoading={historyPending} />
+                </Reveal>
+                <Reveal delay={0.05} className="h-full md:col-span-2">
+                  <PullRequestCard self={self} days={activity.days} />
+                </Reveal>
+              </div>
               <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-5">
                 <Reveal className="h-full md:col-span-3">
                   <InsightCard insight={insight} connected={connected} />

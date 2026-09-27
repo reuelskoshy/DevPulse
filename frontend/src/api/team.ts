@@ -11,6 +11,20 @@ export interface RepoCommits {
   commits: number
 }
 
+/**
+ * Pull request flow over the window. `opened`, `merged` and `reviews` count
+ * events inside the window; `open` is authored PRs still open right now.
+ */
+export interface PullRequestStats {
+  opened: number
+  merged: number
+  open: number
+  /** Teammates' PRs this member reviewed (first review) in the window. */
+  reviews: number
+  /** Median hours from open to merge over PRs merged in the window; null when none merged. */
+  medianHoursToMerge: number | null
+}
+
 export interface TeamMemberActivity {
   userId: string
   name: string
@@ -36,6 +50,7 @@ export interface TeamMemberActivity {
   topRepos: RepoCommits[]
   /** Exactly `days` entries, zero-filled, ascending. */
   daily: DailyCommits[]
+  pullRequests: PullRequestStats
 }
 
 export interface TeamTotals {
@@ -44,6 +59,7 @@ export interface TeamTotals {
   activeMembers: number
   commits: number
   reposTouched: number
+  pullRequests: PullRequestStats
 }
 
 export interface TeamActivity {

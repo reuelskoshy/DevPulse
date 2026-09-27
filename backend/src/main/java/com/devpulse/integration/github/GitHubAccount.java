@@ -45,6 +45,9 @@ public class GitHubAccount extends AssignedIdEntity {
     @Column(name = "last_synced_at")
     private Instant lastSyncedAt;
 
+    @Column(name = "last_pull_requests_synced_at")
+    private Instant lastPullRequestsSyncedAt;
+
     protected GitHubAccount() { }
 
     public GitHubAccount(UUID userId, Long githubUserId, String login, String avatarUrl, String accessToken) {
@@ -76,4 +79,10 @@ public class GitHubAccount extends AssignedIdEntity {
     public Instant getLastSyncedAt() { return lastSyncedAt; }
 
     public void setLastSyncedAt(Instant lastSyncedAt) { this.lastSyncedAt = lastSyncedAt; }
+
+    public Instant getLastPullRequestsSyncedAt() { return lastPullRequestsSyncedAt; }
+
+    public void setLastPullRequestsSyncedAt(Instant lastPullRequestsSyncedAt) {
+        this.lastPullRequestsSyncedAt = lastPullRequestsSyncedAt;
+    }
 }

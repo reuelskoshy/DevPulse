@@ -16,11 +16,15 @@ import com.devpulse.common.exception.NotFoundException;
 import com.devpulse.common.security.UserPrincipal;
 import com.devpulse.integration.github.GitHubAccountRepository;
 import com.devpulse.integration.github.GitHubAccountRepository.AccountSummary;
+import com.devpulse.sync.domain.GitHubPullRequest.Relation;
 import com.devpulse.sync.persistence.GitHubCommitRepository;
+import com.devpulse.sync.persistence.GitHubPullRequestRepository;
+import com.devpulse.sync.persistence.GitHubPullRequestRepository.PullRequestActivityRow;
 import com.devpulse.sync.persistence.GitHubCommitRepository.CommitActivityRow;
 import com.devpulse.team.api.TeamActivityResponse;
 import com.devpulse.team.api.TeamActivityResponse.DailyCommits;
 import com.devpulse.team.api.TeamActivityResponse.Member;
+import com.devpulse.team.api.TeamActivityResponse.PullRequestStats;
 import com.devpulse.team.api.TeamActivityResponse.RepoCommits;
 import com.devpulse.user.domain.DpUser;
 import com.devpulse.user.domain.DpUserRole;
@@ -50,13 +54,15 @@ class TeamActivityServiceTest {
     private static final Instant NOW = Instant.parse("2026-09-27T15:30:00Z");
     private static final LocalDate TODAY = LocalDate.of(2026, 9, 27);
     private static final LocalDate FROM_14 = LocalDate.of(2026, 9, 14);
+    private static final PullRequestStats NO_PULL_REQUESTS = new PullRequestStats(0, 0, 0, 0, null);
 
     @Mock private DpUserRepository userRepository;
     @Mock private GitHubAccountRepository accountRepository;
     @Mock private GitHubCommitRepository commitRepository;
+    @Mock private GitHubPullRequestRepository pullRequestRepository;
 
     private TeamActivityService service() {
-        return new TeamActivityService(userRepository, accountRepository, commitRepository,
+        return new TeamActivityService(userRepository, accountRepository, commitRepository, pullRequestRepository,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -319,7 +325,7 @@ class TeamActivityServiceTest {
 
         assertThat(response.members()).extracting(Member::name)
                 .containsExactly("Zed Manager", "alice", "Bob", "carol", "Dave");
-        assertThat(response.totals()).isEqualTo(new TeamActivityResponse.Totals(5, 4, 3, 9, 3));
+        assertThat(response.totals()).isEqualTo(new TeamActivityResponse.Totals(5, 4, 3, 9, 3, NO_PULL_REQUESTS));
         assertThat(response.daily().stream().mapToInt(DailyCommits::commits).sum()).isEqualTo(9);
     }
 
@@ -374,8 +380,8 @@ class TeamActivityServiceTest {
 
         TeamActivityResponse response = service().getActivity(principal(manager), 14);
 
-        verifyNoInteractions(commitRepository);
-        assertThat(response.totals()).isEqualTo(new TeamActivityResponse.Totals(2, 0, 0, 0, 0));
+        verifyNoInteractions(commitRepository, pullRequestRepository);
+        assertThat(response.totals()).isEqualTo(new TeamActivityResponse.Totals(2, 0, 0, 0, 0, NO_PULL_REQUESTS));
         assertThat(response.daily()).hasSize(14).allSatisfy(day -> assertThat(day.commits()).isZero());
     }
 
@@ -394,6 +400,59 @@ class TeamActivityServiceTest {
         ArgumentCaptor<Collection<UUID>> userIds = ArgumentCaptor.forClass(Collection.class);
         verify(accountRepository).findSummariesByUserIdIn(userIds.capture());
         assertThat(userIds.getValue()).containsExactlyInAnyOrder(manager.getId(), report.getId());
+    }
+
+    // ---- pull requests --------------------------------------------------------------------------------------
+
+    @Test
+    void countsPullRequestFlowInsideTheWindowPerMemberAndForTheTeam() {
+        DpUser manager = user("Mo Manager", DpUserRole.MANAGER, false, null);
+        DpUser report = user("Rae Report", DpUserRole.MEMBER, false, manager);
+        callerIs(manager);
+        when(userRepository.findByParent_Id(manager.getId())).thenReturn(List.of(report));
+        TestAccount mo = account(manager, "mo");
+        TestAccount rae = account(report, "rae");
+        when(accountRepository.findSummariesByUserIdIn(anyCollection())).thenReturn(List.of(mo, rae));
+        when(pullRequestRepository.findActivityByAccountIdsSince(anyCollection(), eq(Instant.parse("2026-09-14T00:00:00Z"))))
+                .thenReturn(List.of(
+                        // Opened and merged in the window after 2h.
+                        authored(mo, "2026-09-20T10:00:00Z", "2026-09-20T12:00:00Z", null),
+                        // Opened in the window after 6h -> median of 2h and 6h is 4h.
+                        authored(mo, "2026-09-21T00:00:00Z", "2026-09-21T06:00:00Z", null),
+                        // Opened before the window, merged in it after 48h: merged but not opened.
+                        authored(mo, "2026-09-12T12:00:00Z", "2026-09-14T12:00:00Z", null),
+                        // Still open: counts as opened and open.
+                        authored(mo, "2026-09-25T09:00:00Z", null, null),
+                        // Opened long ago and still open: open only.
+                        authored(mo, "2026-06-01T09:00:00Z", null, null),
+                        // Closed without merging in the window: opened only.
+                        authored(rae, "2026-09-22T09:00:00Z", null, "2026-09-23T09:00:00Z"),
+                        reviewed(rae, "2026-09-26T09:00:00Z"),
+                        reviewed(rae, "2026-09-13T23:59:59Z"),   // before the window
+                        reviewed(mo, "2026-09-27T01:00:00Z")));
+
+        TeamActivityResponse response = service().getActivity(principal(manager), 14);
+
+        Member moMember = response.members().stream().filter(Member::self).findFirst().orElseThrow();
+        Member raeMember = response.members().stream().filter(m -> !m.self()).findFirst().orElseThrow();
+        assertThat(moMember.pullRequests()).isEqualTo(new PullRequestStats(3, 3, 2, 1, 6.0));
+        assertThat(raeMember.pullRequests()).isEqualTo(new PullRequestStats(1, 0, 0, 1, null));
+        assertThat(response.totals().pullRequests()).isEqualTo(new PullRequestStats(4, 3, 2, 2, 6.0));
+    }
+
+    @Test
+    void medianTimeToMergeAveragesTheMiddlePairAndRoundsToOneDecimal() {
+        DpUser member = user("Mia Member", DpUserRole.MEMBER, false, null);
+        callerIs(member);
+        TestAccount mia = account(member, "mia");
+        when(accountRepository.findSummariesByUserIdIn(anyCollection())).thenReturn(List.of(mia));
+        when(pullRequestRepository.findActivityByAccountIdsSince(anyCollection(), any())).thenReturn(List.of(
+                authored(mia, "2026-09-20T10:00:00Z", "2026-09-20T11:00:00Z", null),   // 60 min
+                authored(mia, "2026-09-21T10:00:00Z", "2026-09-21T11:10:00Z", null)));  // 70 min
+
+        TeamActivityResponse response = service().getActivity(principal(member), 14);
+
+        assertThat(response.members().get(0).pullRequests().medianHoursToMerge()).isEqualTo(1.1);
     }
 
     // ---- helpers -------------------------------------------------------------------------------------------
@@ -434,6 +493,27 @@ class TeamActivityServiceTest {
             rows.add(new TestRow(account.id(), repo, NOW.minusSeconds(3600L * (i + 1))));
         }
         return rows;
+    }
+
+    private PullRequestActivityRow authored(TestAccount account, String openedAt, String mergedAt, String closedAt) {
+        return new TestPullRequest(account.id(), Relation.AUTHORED, Instant.parse(openedAt),
+                mergedAt == null ? null : Instant.parse(mergedAt), closedAt == null ? null : Instant.parse(closedAt),
+                null);
+    }
+
+    private PullRequestActivityRow reviewed(TestAccount account, String reviewedAt) {
+        return new TestPullRequest(account.id(), Relation.REVIEWED, Instant.parse("2026-09-01T00:00:00Z"),
+                null, null, Instant.parse(reviewedAt));
+    }
+
+    record TestPullRequest(UUID accountId, Relation relation, Instant openedAt, Instant mergedAt, Instant closedAt,
+                           Instant reviewedAt) implements PullRequestActivityRow {
+        @Override public UUID getAccountId() { return accountId; }
+        @Override public Relation getRelation() { return relation; }
+        @Override public Instant getOpenedAt() { return openedAt; }
+        @Override public Instant getMergedAt() { return mergedAt; }
+        @Override public Instant getClosedAt() { return closedAt; }
+        @Override public Instant getReviewedAt() { return reviewedAt; }
     }
 
     record TestAccount(UUID id, UUID userId, String login, String avatarUrl, Instant lastSyncedAt)

@@ -1,6 +1,7 @@
 package com.devpulse.integration.github;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 
 import com.devpulse.common.exception.ConflictException;
@@ -139,6 +140,63 @@ class GitHubApiClientTest {
             assertThat(commit.sha()).isEqualTo("abc123");
             assertThat(commit.authorLogin()).isEqualTo("octocat");
         });
+        gitHub.verify();
+    }
+
+    @Test
+    void searchesPullRequestsAndMapsRepoAndMergeTimes() {
+        gitHub.expect(requestTo("https://api.github.com/search/issues?per_page=100&page=1"
+                        + "&q=is%3Apr%20author%3Aoctocat%20updated%3A%3E%3D2026-06-29"))
+                .andRespond(withSuccess("""
+                        {"total_count": 2, "items": [
+                          {"id": 11, "number": 7, "title": "Add checkout",
+                           "repository_url": "https://api.github.com/repos/acme/web",
+                           "created_at": "2026-09-01T10:00:00Z", "updated_at": "2026-09-02T10:00:00Z",
+                           "closed_at": "2026-09-02T09:00:00Z",
+                           "pull_request": {"merged_at": "2026-09-02T09:00:00Z"}},
+                          {"id": 12, "number": 8, "title": "WIP",
+                           "repository_url": "https://api.github.com/repos/acme/api",
+                           "created_at": "2026-09-03T10:00:00Z", "updated_at": "2026-09-03T11:00:00Z",
+                           "closed_at": null, "pull_request": {"merged_at": null}}
+                        ]}""", MediaType.APPLICATION_JSON));
+
+        List<GitHubPullRequestDto> pullRequests = client.searchPullRequests("token", "author:octocat",
+                Instant.parse("2026-06-29T08:00:00Z"));
+
+        assertThat(pullRequests).containsExactly(
+                new GitHubPullRequestDto(11, "acme/web", 7, "Add checkout",
+                        Instant.parse("2026-09-01T10:00:00Z"), Instant.parse("2026-09-02T09:00:00Z"),
+                        Instant.parse("2026-09-02T09:00:00Z"), Instant.parse("2026-09-02T10:00:00Z")),
+                new GitHubPullRequestDto(12, "acme/api", 8, "WIP",
+                        Instant.parse("2026-09-03T10:00:00Z"), null, null,
+                        Instant.parse("2026-09-03T11:00:00Z")));
+        gitHub.verify();
+    }
+
+    @Test
+    void firstReviewIsTheEarliestSubmittedReviewByThatLogin() {
+        gitHub.expect(requestTo(startsWith("https://api.github.com/repos/acme/web/pulls/7/reviews")))
+                .andRespond(withSuccess("""
+                        [{"user": {"login": "someone"}, "submitted_at": "2026-09-01T08:00:00Z"},
+                         {"user": {"login": "Octocat"}, "submitted_at": "2026-09-02T12:00:00Z"},
+                         {"user": {"login": "octocat"}, "submitted_at": "2026-09-01T12:00:00Z"},
+                         {"user": {"login": "octocat"}, "submitted_at": null}]""", MediaType.APPLICATION_JSON));
+
+        assertThat(client.firstReviewAt("token", "acme/web", 7, "octocat"))
+                .isEqualTo(Instant.parse("2026-09-01T12:00:00Z"));
+        gitHub.verify();
+    }
+
+    @Test
+    void rateLimitedSearchIsAConflict() {
+        gitHub.expect(requestTo(startsWith("https://api.github.com/search/issues")))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN)
+                        .header("X-RateLimit-Remaining", "0")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"message\":\"API rate limit exceeded\"}"));
+
+        assertThatThrownBy(() -> client.searchPullRequests("token", "author:octocat", null))
+                .isExactlyInstanceOf(ConflictException.class);
         gitHub.verify();
     }
 }
