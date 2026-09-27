@@ -25,6 +25,11 @@ export interface RegisterRequest {
   password: string
 }
 
+/** Admins of a real (non-demo) session manage roles and reporting lines on the People screen. */
+export function canManagePeople(user: Pick<User, 'role' | 'demo'> | null | undefined): boolean {
+  return user?.role === 'ADMIN' && !user.demo
+}
+
 /** Roles that get the Team view (MEMBER only ever sees themselves). */
 export function canViewTeam(role: string | null | undefined): boolean {
   return role === 'MANAGER' || role === 'ADMIN'

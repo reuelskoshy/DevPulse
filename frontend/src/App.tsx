@@ -12,6 +12,7 @@ import './styles/theme.css'
 // After a redeploy their old chunk URLs are gone, so each route sits inside RouteErrorBoundary.
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Team = lazy(() => import('./pages/Team'))
+const People = lazy(() => import('./pages/People'))
 
 /** Full-viewport session check: the pulse mark breathing inside a glass bezel. */
 function FullScreenLoader() {
@@ -112,6 +113,19 @@ function App() {
             <RouteErrorBoundary reloadingFallback={<FullScreenLoader />}>
               <Suspense fallback={<FullScreenLoader />}>
                 <Team />
+              </Suspense>
+            </RouteErrorBoundary>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/app/people"
+        element={
+          <ProtectedRoute>
+            <RouteErrorBoundary reloadingFallback={<FullScreenLoader />}>
+              <Suspense fallback={<FullScreenLoader />}>
+                <People />
               </Suspense>
             </RouteErrorBoundary>
           </ProtectedRoute>

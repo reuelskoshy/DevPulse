@@ -1,8 +1,8 @@
 import { Link, NavLink } from 'react-router-dom'
-import { Flask, SignOut, SquaresFour, UsersThree } from '@phosphor-icons/react'
+import { Flask, IdentificationCard, SignOut, SquaresFour, UsersThree } from '@phosphor-icons/react'
 import type { Icon } from '@phosphor-icons/react'
 import { useAuth } from '../context/useAuth'
-import { canViewTeam } from '../types/auth'
+import { canManagePeople, canViewTeam } from '../types/auth'
 import { BrandMark } from './BrandMark'
 import { IslandButton } from './IslandButton'
 
@@ -22,8 +22,8 @@ function navLinkClass({ isActive }: { isActive: boolean }): string {
 }
 
 /**
- * Floating glass-pill header for the signed-in app: brand, Overview / Team nav
- * (Team only for managers and admins), the account email and Sign out. Demo
+ * Floating glass-pill header for the signed-in app: brand, Overview / Team / People nav
+ * (Team for managers and admins, People for real admins), the account email and Sign out. Demo
  * sessions get a slim read-only banner underneath.
  */
 export function AppHeader() {
@@ -32,6 +32,7 @@ export function AppHeader() {
   const items: AppNavItem[] = [
     { to: '/app/dashboard', label: 'Overview', icon: SquaresFour },
     ...(canViewTeam(user?.role) ? [{ to: '/app/team', label: 'Team', icon: UsersThree }] : []),
+    ...(canManagePeople(user) ? [{ to: '/app/people', label: 'People', icon: IdentificationCard }] : []),
   ]
 
   return (
