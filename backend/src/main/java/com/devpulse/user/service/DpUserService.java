@@ -33,19 +33,22 @@ public class DpUserService {
             case MANAGER -> dpUserRepository.findByParent_Id(principal.id());
             case MEMBER -> List.of(requireUser(principal.id()));
         };
-        return team.stream().map(TeamMemberResponse::from).toList();
+        return team.stream()
+                .filter(member -> sameWorld(member, principal))
+                .map(TeamMemberResponse::from)
+                .toList();
     }
 
     @Transactional(readOnly = true)
     public TeamMemberResponse getMember(UUID targetId, UserPrincipal principal) {
-        DpUser target = requireUser(targetId);
+        DpUser target = requireVisibleUser(targetId, principal);
         requireReadAccess(target, principal);
         return TeamMemberResponse.from(target);
     }
 
     @Transactional
     public TeamMemberResponse updateProfile(UUID targetId, UpdateProfileRequest request, UserPrincipal principal) {
-        DpUser target = requireUser(targetId);
+        DpUser target = requireVisibleUser(targetId, principal);
         requireWriteAccess(target, principal);
 
         if (request.name() != null) {
@@ -65,7 +68,7 @@ public class DpUserService {
 
     @Transactional
     public TeamMemberResponse updateStatus(UUID targetId, UpdateStatusRequest request, UserPrincipal principal) {
-        DpUser target = requireUser(targetId);
+        DpUser target = requireVisibleUser(targetId, principal);
         requireManagementAccess(target, principal);
 
         target.setActiveStatus(request.activeStatus());
@@ -74,16 +77,33 @@ public class DpUserService {
     }
 
     @Transactional
-    public TeamMemberResponse updateRole(UUID targetId, UpdateRoleRequest request) {
-        DpUser target = requireUser(targetId);
+    public TeamMemberResponse updateRole(UUID targetId, UpdateRoleRequest request, UserPrincipal principal) {
+        DpUser target = requireVisibleUser(targetId, principal);
+        DpUser parent = request.parentId() == null ? null : requireVisibleUser(request.parentId(), principal);
         target.setRole(request.role());
-        target.setParent(request.parentId() == null ? null : requireUser(request.parentId()));
+        target.setParent(parent);
         return TeamMemberResponse.from(dpUserRepository.save(target));
     }
 
     private DpUser requireUser(UUID id) {
         return dpUserRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("User not found."));
+    }
+
+    /**
+     * Demo and real users never mix: a demo session only ever sees demo users and a real session, including an
+     * ADMIN, never sees them. A user from the other side is reported as not found rather than forbidden.
+     */
+    private static boolean sameWorld(DpUser user, UserPrincipal principal) {
+        return user.isDemo() == principal.demo();
+    }
+
+    private DpUser requireVisibleUser(UUID id, UserPrincipal principal) {
+        DpUser user = requireUser(id);
+        if (!sameWorld(user, principal)) {
+            throw new NotFoundException("User not found.");
+        }
+        return user;
     }
 
     private void requireReadAccess(DpUser target, UserPrincipal principal) {

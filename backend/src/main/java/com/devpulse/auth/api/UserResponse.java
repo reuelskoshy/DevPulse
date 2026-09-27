@@ -5,9 +5,10 @@ import java.util.UUID;
 
 import com.devpulse.user.domain.DpUser;
 
-public record UserResponse(UUID id, String email, String role, Instant createdAt) {
+public record UserResponse(UUID id, String email, String role, Instant createdAt, boolean demo) {
 
     public static UserResponse from(DpUser user) {
-        return new UserResponse(user.getId(), user.getEmail(), user.getRole().name(), user.getAccountCreatedDatetime());
+        return new UserResponse(user.getId(), user.getEmail(), user.getRole().name(),
+                user.getAccountCreatedDatetime(), user.isDemo());
     }
 }

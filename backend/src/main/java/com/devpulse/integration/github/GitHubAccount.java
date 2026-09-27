@@ -3,6 +3,7 @@ package com.devpulse.integration.github;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.devpulse.common.persistence.AssignedIdEntity;
 import com.devpulse.common.security.EncryptedStringConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -14,7 +15,7 @@ import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "github_accounts")
-public class GitHubAccount {
+public class GitHubAccount extends AssignedIdEntity {
 
     @Id
     @Column(columnDefinition = "CHAR(36)")

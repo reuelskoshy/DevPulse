@@ -1,0 +1,66 @@
+# Render Blueprint for the DevPulse API (https://render.com/docs/blueprint-spec).
+# The web app deploys separately on Vercel and the database is any hosted MySQL 8; see "Deploy" in
+# README.md.
+#
+# Variables marked `sync: false` are prompted for once, when the Blueprint is first created. Later
+# Blueprint syncs ignore them, so change them afterwards in the service's Environment tab.
+services:
+  - type: web
+    name: devpulse-api
+    runtime: docker
+    plan: free
+    # Can't be changed after creation; pick the region closest to your MySQL host.
+    region: oregon
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /api/v1/health
+    # Only rebuild when backend files change (paths are relative to the repo root).
+    buildFilter:
+      paths:
+        - "backend/**"
+    envVars:
+      # Seeds the read-only sample team and enables "Try the live demo".
+      - key: DEMO_ENABLED
+        value: "true"
+      # Sized for the 512 MB free instance; keep in sync with the default in backend/Dockerfile.
+      - key: JAVA_OPTS
+        value: "-XX:MaxRAMPercentage=70 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError"
+      # Pin the listen port so it matches the Dockerfile's EXPOSE (Render's default PORT is 10000).
+      - key: PORT
+        value: "8080"
+
+      # Hosted MySQL 8, over TLS:
+      # jdbc:mysql://<host>:<port>/<database>?sslMode=REQUIRED&serverTimezone=UTC
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_USERNAME
+        sync: false
+      - key: DATABASE_PASSWORD
+        sync: false
+
+      # Generate each locally with `openssl rand -base64 32`. JWT_SECRET must decode to at least
+      # 32 bytes; TOKEN_ENCRYPTION_KEY to exactly 32 bytes (AES-256). That command satisfies both.
+      - key: JWT_SECRET
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+
+      # The exact Vercel origin, no trailing slash: https://<your-project>.vercel.app
+      - key: FRONTEND_ORIGIN
+        sync: false
+
+      # Optional: a production GitHub OAuth app. Leave all four blank to keep GitHub connect off.
+      # Callback: https://<render-service>.onrender.com/api/v1/integrations/github/callback
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_REDIRECT_URI
+        sync: false
+      # https://<your-project>.vercel.app/app/dashboard
+      - key: GITHUB_FRONTEND_SUCCESS_URL
+        sync: false
+
+      # Optional: enables AI insights for real accounts. Leave blank to keep insights off.
+      - key: GEMINI_API_KEY
+        sync: false

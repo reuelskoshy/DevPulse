@@ -2,6 +2,14 @@
 
 DevPulse is an AI-powered developer intelligence platform for engineering teams.
 
+## Live demo
+
+**Demo URL:** `TODO: add the Vercel URL here after deploying` (see [Deploy](#deploy)).
+
+Click **Try the live demo** to sign in as the manager of a read-only sample team. You don't need an account or a GitHub connection. You can explore the dashboard and the team activity view. Anything that would change data, such as syncing, generating insights, or editing the team, is blocked. To connect your own GitHub, create a free account.
+
+The demo backend runs on a free instance that sleeps when idle. The first request after a quiet spell can take up to about a minute.
+
 ## Prerequisites
 
 - Java 21
@@ -38,7 +46,8 @@ docker exec -it devpulse-mysql-1 mysql -uroot -p db_DevPulse
 ## Authentication endpoints
 
 - `POST /api/v1/auth/register` — `{ "name": "Dev User", "email": "dev@example.com", "password": "at-least-12-characters" }`
-- `POST /api/v1/auth/login` — returns an access token and user DTO
+- `POST /api/v1/auth/login` — returns an access token and user DTO. The user DTO includes `demo: true|false`.
+- `POST /api/v1/auth/demo` — signs in as the demo manager of the read-only sample team. Returns 404 unless `DEMO_ENABLED=true`. In a demo session, every request other than `GET`/`HEAD`/`OPTIONS` gets 403, except requests under `/api/v1/auth/`.
 - `GET /api/v1/users/me` — requires `Authorization: Bearer <access-token>`
 
 ## Team management endpoints
@@ -69,9 +78,84 @@ The connection requests `read:user` and `repo` scopes. The access token is encry
 - `POST /api/v1/insights/generate` — summarizes the last 14 days of synced commit activity into a short plain-language insight via the Gemini API. Requires `GEMINI_API_KEY` to be set; each call is a deliberate user action, not automatic.
 - `GET /api/v1/insights/latest` — cheap read of the most recently generated insight (404 if none yet).
 
+## Team activity
+
+- `GET /api/v1/team/activity?days=14` — commit activity for everyone you can see, over the last `days` calendar days in UTC, ending today. `days` accepts 1–90 and defaults to 14; any other value returns 400.
+  - Team totals: members, connected members, active members, commits, and repos touched.
+  - A zero-filled daily team series.
+  - One entry per member: GitHub connection and login, last sync time, commits, active days, last commit time, top 3 repos, and a daily series.
+  - Members are sorted by commits, then by name.
+
+Who sees whom follows the team roles. `ADMIN` sees everyone. `MANAGER` sees themselves and their direct reports (users whose `parent` is them). `MEMBER` sees only themselves. Demo users and real users never see each other. No tokens, phone numbers, or addresses are returned.
+
 ## Environment variables
 
 The root `.env` file is exclusively for local Docker Compose infrastructure. Backend secrets live in `backend/.env` (copied from `backend/.env.example`, never committed):
 
 - `TOKEN_ENCRYPTION_KEY` — base64, 32 bytes, encrypts the GitHub access token at rest. Changing it invalidates previously-connected accounts; reconnect GitHub afterward.
 - `GEMINI_API_KEY` / `GEMINI_MODEL` — used to generate AI insights (free tier via [aistudio.google.com](https://aistudio.google.com), no card required).
+- `DEMO_ENABLED` — `true` seeds the read-only sample team and turns on **Try the live demo** (`POST /api/v1/auth/demo`). Defaults to `false`.
+- `PORT` — the port the API listens on, set by hosting platforms. Falls back to `BACKEND_PORT`, then 8080.
+
+## Deploy
+
+The live demo runs on free tiers:
+
+- The API runs on [Render](https://render.com) as a Docker service.
+- MySQL 8 can be any hosted provider, for example [Aiven](https://aiven.io)'s free plan.
+- The web app runs on [Vercel](https://vercel.com).
+
+The repo includes `backend/Dockerfile`, `render.yaml`, and `frontend/vercel.json` for this setup.
+
+1. **Database.** Create a hosted MySQL 8 database. Note its host, port, database name, username, and password. Aiven's defaults are database `defaultdb` and user `avnadmin`. Build the JDBC URL. Hosted MySQL usually requires TLS:
+
+   ```
+   jdbc:mysql://<host>:<port>/<database>?sslMode=REQUIRED&serverTimezone=UTC
+   ```
+
+   Flyway creates the schema when the API first starts.
+
+2. **Secrets.** Generate two values locally and never commit them. Each must decode to 32 bytes:
+
+   ```bash
+   openssl rand -base64 32   # JWT_SECRET
+   openssl rand -base64 32   # TOKEN_ENCRYPTION_KEY
+   ```
+
+3. **Backend on Render.** Choose **New → Blueprint** and connect this repo. Render reads `render.yaml`, which defines one free Docker web service. The service is built from `backend/Dockerfile`, health-checked at `/api/v1/health`, and runs with `DEMO_ENABLED=true`. Fill in the prompted variables:
+   - `DATABASE_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD` come from step 1.
+   - `JWT_SECRET` and `TOKEN_ENCRYPTION_KEY` come from step 2.
+   - `FRONTEND_ORIGIN` is the Vercel URL. If you don't have it yet, enter a placeholder and fix it in step 5.
+   - The `GITHUB_*` variables and `GEMINI_API_KEY` are optional (see step 6). Leave them blank for a demo-only deploy; the API then reports those features as not configured.
+
+   Render only prompts for these when the Blueprint is first created. To change them later, use the service's **Environment** tab. Once the service is live, `https://<render-service>.onrender.com/api/v1/health` should return `"status": "UP"`.
+
+4. **Frontend on Vercel.** Import the repo with these settings:
+   - Root directory: `frontend`
+   - Framework preset: Vite
+   - Build command: `npm run build`
+   - Output directory: `dist`
+   - Environment variable: `VITE_API_URL=https://<render-service>.onrender.com/api/v1`
+
+   Vite bakes `VITE_API_URL` into the build, so redeploy after changing it. `vercel.json` rewrites every path to `index.html`, so deep links like `/app/dashboard` work on refresh.
+
+5. **CORS.** On Render, set `FRONTEND_ORIGIN` to the exact Vercel production URL: scheme and host, no trailing slash, for example `https://<your-project>.vercel.app`. Then redeploy. The API allows exactly one origin, so Vercel preview URLs can't call it.
+
+6. **Optional: GitHub and AI insights for real accounts.** A GitHub OAuth App has a single callback URL, so create a separate one for production. Set its callback to `https://<render-service>.onrender.com/api/v1/integrations/github/callback`. Then set these on Render:
+   - `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` from the new OAuth App.
+   - `GITHUB_REDIRECT_URI`: the same callback URL.
+   - `GITHUB_FRONTEND_SUCCESS_URL=https://<your-project>.vercel.app/app/dashboard`.
+   - `GEMINI_API_KEY`, to turn on insights.
+
+7. **Cold starts.** Render's free instance sleeps after 15 minutes without traffic. The next request wakes it, which takes roughly 30–60 seconds, sometimes longer while the JVM starts. The first **Try the live demo** click after a quiet spell can be slow. The instance has 512 MB of RAM, and `JAVA_OPTS` in `render.yaml` is sized for that. The heap is a percentage of container memory, so it grows with a bigger plan. On a bigger plan, you can also drop `-XX:TieredStopAtLevel=1`.
+
+Finally, put the Vercel URL in [Live demo](#live-demo) above.
+
+To try the image locally, build it and point it at your local MySQL through `host.docker.internal` (inside a container, `localhost` is the container itself). The `-e` flag overrides `DATABASE_URL` from `backend/.env` without editing the file; `--add-host` makes `host.docker.internal` resolve on Linux too:
+
+```bash
+docker build -t devpulse-api ./backend
+docker run --rm -p 8080:8080 --env-file backend/.env \
+  -e DATABASE_URL='jdbc:mysql://host.docker.internal:3306/db_DevPulse?serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true' \
+  --add-host=host.docker.internal:host-gateway devpulse-api
+```

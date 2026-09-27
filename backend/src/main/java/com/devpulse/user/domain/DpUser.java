@@ -3,6 +3,7 @@ package com.devpulse.user.domain;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.devpulse.common.persistence.AssignedIdEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -18,7 +19,7 @@ import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "dp_user")
-public class DpUser {
+public class DpUser extends AssignedIdEntity {
 
     @Id
     @Column(columnDefinition = "CHAR(36)")
@@ -69,6 +70,9 @@ public class DpUser {
     @Column(name = "mfa_active", nullable = false)
     private Boolean mfaActive;
 
+    @Column(name = "demo", nullable = false)
+    private Boolean demo;
+
     protected DpUser() {
     }
 
@@ -80,6 +84,7 @@ public class DpUser {
         this.role = role;
         this.activeStatus = true;
         this.mfaActive = false;
+        this.demo = false;
     }
 
     @PrePersist
@@ -136,4 +141,7 @@ public class DpUser {
 
     public Boolean getMfaActive() { return mfaActive; }
     public void setMfaActive(Boolean mfaActive) { this.mfaActive = mfaActive; }
+
+    public boolean isDemo() { return Boolean.TRUE.equals(demo); }
+    public void setDemo(boolean demo) { this.demo = demo; }
 }

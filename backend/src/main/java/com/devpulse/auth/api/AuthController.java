@@ -29,4 +29,10 @@ public class AuthController {
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
         return authenticationService.login(request);
     }
+
+    /** Public live demo: 404 unless DEMO_ENABLED, otherwise a read-only session as the demo team's manager. */
+    @PostMapping("/demo")
+    public AuthResponse demo() {
+        return authenticationService.demoLogin();
+    }
 }

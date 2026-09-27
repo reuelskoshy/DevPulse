@@ -54,7 +54,10 @@ public class TeamController {
 
     @PatchMapping("/{id}/role")
     @PreAuthorize("hasRole('ADMIN')")
-    public TeamMemberResponse updateRole(@PathVariable UUID id, @Valid @RequestBody UpdateRoleRequest request) {
-        return dpUserService.updateRole(id, request);
+    public TeamMemberResponse updateRole(
+            @PathVariable UUID id,
+            @Valid @RequestBody UpdateRoleRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return dpUserService.updateRole(id, request, principal);
     }
 }

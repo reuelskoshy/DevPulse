@@ -3,6 +3,7 @@ package com.devpulse.insights.domain;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.devpulse.common.persistence.AssignedIdEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -12,7 +13,7 @@ import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "ai_insights")
-public class Insight {
+public class Insight extends AssignedIdEntity {
 
     @Id
     @Column(columnDefinition = "CHAR(36)")

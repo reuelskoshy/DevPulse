@@ -1,6 +1,8 @@
 package com.devpulse.common.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.devpulse.demo.DemoProperties;
+import com.devpulse.demo.DemoReadOnlyFilter;
 import com.devpulse.insights.service.GeminiProperties;
 import com.devpulse.integration.github.GitHubProperties;
 import jakarta.servlet.DispatcherType;
@@ -28,7 +30,7 @@ import java.util.Map;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties({JwtProperties.class, GitHubProperties.class, GeminiProperties.class})
+@EnableConfigurationProperties({JwtProperties.class, GitHubProperties.class, GeminiProperties.class, DemoProperties.class})
 public class SecurityConfig {
 
     @Bean
@@ -52,6 +54,10 @@ public class SecurityConfig {
                     writeJson(response, objectMapper, Map.of("status", 401, "message", "Authentication is required."));
                 }))
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+                // Constructed here rather than declared as a bean: Spring Boot would also register a Filter bean in
+                // the servlet container's chain, and that copy could mark the request as filtered before the
+                // security context exists, silently disabling the read-only guard.
+                .addFilterAfter(new DemoReadOnlyFilter(objectMapper), JwtAuthenticationFilter.class)
                 .build();
     }
 

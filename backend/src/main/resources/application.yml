@@ -5,6 +5,10 @@ spring:
     url: ${DATABASE_URL}
     username: ${DATABASE_USERNAME}
     password: ${DATABASE_PASSWORD}
+    hikari:
+      data-source-properties:
+        # Lets MySQL Connector/J send Hibernate's JDBC batches as multi-row inserts.
+        rewriteBatchedStatements: true
   jpa:
     open-in-view: false
     hibernate:
@@ -12,11 +16,15 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
+        jdbc:
+          batch_size: 100
+        order_inserts: true
+        order_updates: true
   flyway:
     enabled: true
 
 server:
-  port: ${BACKEND_PORT:8080}
+  port: ${PORT:${BACKEND_PORT:8080}}
 
 management:
   endpoints:
@@ -45,3 +53,5 @@ devpulse:
     gemini:
       api-key: ${GEMINI_API_KEY:}
       model: ${GEMINI_MODEL:gemini-3.6-flash}
+  demo:
+    enabled: ${DEMO_ENABLED:false}

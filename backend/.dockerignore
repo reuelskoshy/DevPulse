@@ -1,0 +1,23 @@
+# Keep the Docker build context small and free of local secrets.
+# The Dockerfile only needs pom.xml and src/.
+
+# Build output and local Maven repository
+target/
+.m2/
+
+# Local environment files (secrets)
+.env
+.env.*
+
+# IDE and operating-system files
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+.DS_Store
+
+# Logs
+*.log

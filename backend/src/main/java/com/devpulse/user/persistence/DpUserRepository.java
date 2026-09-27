@@ -1,5 +1,6 @@
 package com.devpulse.user.persistence;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,4 +17,9 @@ public interface DpUserRepository extends JpaRepository<DpUser, UUID> {
     boolean existsByEmail(String email);
 
     List<DpUser> findByParent_Id(UUID parentId);
+
+    List<DpUser> findByEmailIn(Collection<String> emails);
+
+    /** Every live-demo user; used only by the demo seeder. */
+    List<DpUser> findByDemoTrue();
 }

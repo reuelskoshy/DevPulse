@@ -30,6 +30,7 @@ public class JwtService {
                 .subject(user.getId().toString())
                 .claim("email", user.getEmail())
                 .claim("role", user.getRole().name())
+                .claim("demo", user.isDemo())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(properties.accessTokenExpiration())))
                 .signWith(signingKey)
@@ -43,6 +44,7 @@ public class JwtService {
         return new UserPrincipal(
                 UUID.fromString(claims.getSubject()),
                 claims.get("email", String.class),
-                claims.get("role", String.class));
+                claims.get("role", String.class),
+                Boolean.TRUE.equals(claims.get("demo", Boolean.class)));
     }
 }

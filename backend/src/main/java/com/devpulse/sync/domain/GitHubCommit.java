@@ -3,6 +3,7 @@ package com.devpulse.sync.domain;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.devpulse.common.persistence.AssignedIdEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -14,7 +15,7 @@ import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "github_commits")
-public class GitHubCommit {
+public class GitHubCommit extends AssignedIdEntity {
 
     @Id
     @Column(columnDefinition = "CHAR(36)")
