@@ -7,19 +7,27 @@ import java.util.List;
 import java.util.Map;
 
 import com.devpulse.common.exception.ConflictException;
-import com.devpulse.common.exception.UnauthorizedException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
 @Component
 public class GitHubApiClient {
 
+    private static final Logger log = LoggerFactory.getLogger(GitHubApiClient.class);
+
     private static final String GITHUB_API = "https://api.github.com";
     private static final int PER_PAGE = 100;
     private static final int MAX_PAGES = 20;
+
+    private static final String RECONNECT_MESSAGE = "Your GitHub connection has expired. Please reconnect your GitHub account.";
+    private static final String RATE_LIMIT_MESSAGE = "GitHub API rate limit reached. Please try syncing again later.";
+    private static final String UNREACHABLE_MESSAGE = "Couldn't reach GitHub right now. Please try again later.";
 
     private final RestClient restClient;
 
@@ -54,7 +62,15 @@ public class GitHubApiClient {
             if (since != null) {
                 uri.append("&since=").append(since);
             }
-            List<Map<String, Object>> body = get(accessToken, uri.toString());
+            List<Map<String, Object>> body;
+            try {
+                body = request(accessToken, uri.toString());
+            } catch (HttpClientErrorException.Conflict exception) {
+                // GitHub answers 409 "Git Repository is empty." for a repository with no commits yet.
+                break;
+            } catch (RestClientException exception) {
+                throw translate(exception);
+            }
             if (body == null || body.isEmpty()) {
                 break;
             }
@@ -68,25 +84,39 @@ public class GitHubApiClient {
 
     private List<Map<String, Object>> get(String accessToken, String uri) {
         try {
-            return restClient.get()
-                    .uri(uri)
-                    .header("Authorization", "Bearer " + accessToken)
-                    .header("X-GitHub-Api-Version", "2022-11-28")
-                    .accept(MediaType.APPLICATION_JSON)
-                    .retrieve()
-                    .body(new ParameterizedTypeReference<List<Map<String, Object>>>() {
-                    });
-        } catch (HttpClientErrorException.Unauthorized exception) {
-            throw new UnauthorizedException("Your GitHub connection has expired. Please reconnect your GitHub account.");
-        } catch (HttpClientErrorException.Forbidden exception) {
-            String remaining = exception.getResponseHeaders() == null
-                    ? null
-                    : exception.getResponseHeaders().getFirst("X-RateLimit-Remaining");
-            if ("0".equals(remaining)) {
-                throw new ConflictException("GitHub API rate limit reached. Please try syncing again later.");
-            }
-            throw new ConflictException("GitHub denied access to this resource.");
+            return request(accessToken, uri);
+        } catch (RestClientException exception) {
+            throw translate(exception);
         }
+    }
+
+    private List<Map<String, Object>> request(String accessToken, String uri) {
+        return restClient.get()
+                .uri(uri)
+                .header("Authorization", "Bearer " + accessToken)
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .accept(MediaType.APPLICATION_JSON)
+                .retrieve()
+                .body(new ParameterizedTypeReference<List<Map<String, Object>>>() {
+                });
+    }
+
+    // Always a 409, never a 401: a DevPulse 401 means the DevPulse session is invalid and logs the user out.
+    private ConflictException translate(RestClientException exception) {
+        if (exception instanceof HttpClientErrorException.Unauthorized) {
+            return new ConflictException(RECONNECT_MESSAGE);
+        }
+        if (exception instanceof HttpClientErrorException.Forbidden forbidden) {
+            String remaining = forbidden.getResponseHeaders() == null
+                    ? null
+                    : forbidden.getResponseHeaders().getFirst("X-RateLimit-Remaining");
+            return new ConflictException("0".equals(remaining) ? RATE_LIMIT_MESSAGE : "GitHub denied access to this resource.");
+        }
+        if (exception instanceof HttpClientErrorException.TooManyRequests) {
+            return new ConflictException(RATE_LIMIT_MESSAGE);
+        }
+        log.warn("GitHub API request failed: {}: {}", exception.getClass().getName(), exception.getMessage());
+        return new ConflictException(UNREACHABLE_MESSAGE);
     }
 
     @SuppressWarnings("unchecked")

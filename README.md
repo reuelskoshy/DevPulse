@@ -66,7 +66,7 @@ The connection requests `read:user` and `repo` scopes. The access token is encry
 
 ## AI insights
 
-- `POST /api/v1/insights/generate` — summarizes the last 14 days of synced commit activity into a short plain-language insight via the Anthropic API. Requires `ANTHROPIC_API_KEY` to be set; costs an API call each time, so it's a deliberate user action, not automatic.
+- `POST /api/v1/insights/generate` — summarizes the last 14 days of synced commit activity into a short plain-language insight via the Gemini API. Requires `GEMINI_API_KEY` to be set; each call is a deliberate user action, not automatic.
 - `GET /api/v1/insights/latest` — cheap read of the most recently generated insight (404 if none yet).
 
 ## Environment variables
@@ -74,4 +74,4 @@ The connection requests `read:user` and `repo` scopes. The access token is encry
 The root `.env` file is exclusively for local Docker Compose infrastructure. Backend secrets live in `backend/.env` (copied from `backend/.env.example`, never committed):
 
 - `TOKEN_ENCRYPTION_KEY` — base64, 32 bytes, encrypts the GitHub access token at rest. Changing it invalidates previously-connected accounts; reconnect GitHub afterward.
-- `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` — used to generate AI insights.
+- `GEMINI_API_KEY` / `GEMINI_MODEL` — used to generate AI insights (free tier via [aistudio.google.com](https://aistudio.google.com), no card required).

@@ -35,17 +35,17 @@ public class InsightService {
     private final GitHubAccountRepository accountRepository;
     private final GitHubCommitRepository commitRepository;
     private final InsightRepository insightRepository;
-    private final AnthropicClient anthropicClient;
-    private final AnthropicProperties anthropicProperties;
+    private final GeminiClient geminiClient;
+    private final GeminiProperties geminiProperties;
 
     public InsightService(GitHubAccountRepository accountRepository, GitHubCommitRepository commitRepository,
-                   InsightRepository insightRepository, AnthropicClient anthropicClient,
-                   AnthropicProperties anthropicProperties) {
+                   InsightRepository insightRepository, GeminiClient geminiClient,
+                   GeminiProperties geminiProperties) {
         this.accountRepository = accountRepository;
         this.commitRepository = commitRepository;
         this.insightRepository = insightRepository;
-        this.anthropicClient = anthropicClient;
-        this.anthropicProperties = anthropicProperties;
+        this.geminiClient = geminiClient;
+        this.geminiProperties = geminiProperties;
     }
 
     @Transactional
@@ -64,7 +64,7 @@ public class InsightService {
             summary = NO_ACTIVITY_SUMMARY;
         } else {
             requireConfigured();
-            summary = anthropicClient.summarize(buildPrompt(recentCommits));
+            summary = geminiClient.summarize(buildPrompt(recentCommits));
         }
 
         Insight insight = new Insight(principal.id(), summary, recentCommits.size(), repoCount);
@@ -113,8 +113,8 @@ public class InsightService {
     }
 
     private void requireConfigured() {
-        if (anthropicProperties.apiKey() == null || anthropicProperties.apiKey().isBlank()) {
-            throw new ConflictException("AI insights are not configured. Set ANTHROPIC_API_KEY.");
+        if (geminiProperties.apiKey() == null || geminiProperties.apiKey().isBlank()) {
+            throw new ConflictException("AI insights are not configured. Set GEMINI_API_KEY.");
         }
     }
 }

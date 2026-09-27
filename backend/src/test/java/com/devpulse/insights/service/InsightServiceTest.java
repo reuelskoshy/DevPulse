@@ -34,13 +34,13 @@ class InsightServiceTest {
     @Mock private GitHubAccountRepository accountRepository;
     @Mock private GitHubCommitRepository commitRepository;
     @Mock private InsightRepository insightRepository;
-    @Mock private AnthropicClient anthropicClient;
+    @Mock private GeminiClient geminiClient;
 
     private final UUID userId = UUID.randomUUID();
     private final UserPrincipal principal = new UserPrincipal(userId, "dev@example.com", "MEMBER");
 
-    private InsightService service(AnthropicProperties properties) {
-        return new InsightService(accountRepository, commitRepository, insightRepository, anthropicClient, properties);
+    private InsightService service(GeminiProperties properties) {
+        return new InsightService(accountRepository, commitRepository, insightRepository, geminiClient, properties);
     }
 
     private GitHubAccount account() {
@@ -54,10 +54,10 @@ class InsightServiceTest {
                 .thenReturn(List.of());
         when(insightRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        InsightResponse response = service(new AnthropicProperties("test-key", "claude-haiku-4-5-20251001"))
+        InsightResponse response = service(new GeminiProperties("test-key", "gemini-3.6-flash"))
                 .generate(principal);
 
-        verifyNoInteractions(anthropicClient);
+        verifyNoInteractions(geminiClient);
         assertThat(response.summary()).contains("No commit activity in the last 14 days");
         assertThat(response.commitCount()).isZero();
         assertThat(response.repoCount()).isZero();
@@ -76,14 +76,14 @@ class InsightServiceTest {
         when(accountRepository.findByUserId(userId)).thenReturn(Optional.of(account));
         when(commitRepository.findByRepository_GithubAccountIdAndAuthoredAtAfter(any(), any(), any()))
                 .thenReturn(commits);
-        when(anthropicClient.summarize(any())).thenReturn("Worked on OAuth and dashboard wiring.");
+        when(geminiClient.summarize(any())).thenReturn("Worked on OAuth and dashboard wiring.");
         when(insightRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        InsightResponse response = service(new AnthropicProperties("test-key", "claude-haiku-4-5-20251001"))
+        InsightResponse response = service(new GeminiProperties("test-key", "gemini-3.6-flash"))
                 .generate(principal);
 
         ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
-        verify(anthropicClient).summarize(promptCaptor.capture());
+        verify(geminiClient).summarize(promptCaptor.capture());
         String prompt = promptCaptor.getValue();
         assertThat(prompt).contains("org/api-service");
         assertThat(prompt).contains("org/frontend");
@@ -104,9 +104,9 @@ class InsightServiceTest {
         when(commitRepository.findByRepository_GithubAccountIdAndAuthoredAtAfter(any(), any(), any()))
                 .thenReturn(List.of(commit(repo, "sha1", "Some commit")));
 
-        assertThatThrownBy(() -> service(new AnthropicProperties("", "claude-haiku-4-5-20251001")).generate(principal))
+        assertThatThrownBy(() -> service(new GeminiProperties("", "gemini-3.6-flash")).generate(principal))
                 .isInstanceOf(ConflictException.class);
-        verifyNoInteractions(anthropicClient);
+        verifyNoInteractions(geminiClient);
     }
 
     private GitHubRepo repo(GitHubAccount account, long githubRepoId, String fullName) {

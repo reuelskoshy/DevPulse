@@ -8,14 +8,15 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.devpulse.common.exception.ConflictException;
-import com.devpulse.common.exception.UnauthorizedException;
 import com.devpulse.common.security.UserPrincipal;
+import com.devpulse.integration.github.GitHubConnectException.Reason;
 import com.devpulse.sync.persistence.GitHubCommitRepository;
 import com.devpulse.sync.persistence.GitHubRepoRepository;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
 @Service
 public class GitHubOAuthService {
@@ -55,43 +56,76 @@ public class GitHubOAuthService {
         return new GitHubAuthorizationResponse(url);
     }
 
-    @Transactional
+    // noRollbackFor keeps the state deletion committed when the attempt fails, so a state is single-use either way.
+    @Transactional(noRollbackFor = GitHubConnectException.class)
     public void complete(String code, String state) {
         GitHubOAuthState oauthState = stateRepository.findById(state)
-                .orElseThrow(() -> new UnauthorizedException("The GitHub connection request is invalid or has expired."));
+                .orElseThrow(() -> new GitHubConnectException(Reason.EXPIRED,
+                        "The GitHub connection request is unknown or was already used."));
         stateRepository.delete(oauthState);
         if (oauthState.isExpired()) {
-            throw new UnauthorizedException("The GitHub connection request has expired. Please try again.");
+            throw new GitHubConnectException(Reason.EXPIRED, "The GitHub connection request has expired.");
         }
-        validateConfiguration();
-
-        Map<String, Object> tokenResponse = restClient.post()
-                .uri(GITHUB_TOKEN_URL)
-                .accept(MediaType.APPLICATION_JSON)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("client_id", properties.clientId(), "client_secret", properties.clientSecret(),
-                        "code", code, "redirect_uri", properties.redirectUri()))
-                .retrieve()
-                .body(Map.class);
-        String accessToken = tokenResponse == null ? null : (String) tokenResponse.get("access_token");
-        if (accessToken == null || accessToken.isBlank()) {
-            throw new UnauthorizedException("GitHub did not return an access token.");
+        if (!isConfigured()) {
+            throw new GitHubConnectException(Reason.FAILED, "GitHub OAuth is not configured.");
         }
 
-        Map<String, Object> profile = restClient.get()
-                .uri(GITHUB_USER_URL)
-                .header("Authorization", "Bearer " + accessToken)
-                .header("X-GitHub-Api-Version", "2022-11-28")
-                .accept(MediaType.APPLICATION_JSON)
-                .retrieve()
-                .body(Map.class);
+        String accessToken = exchangeCodeForAccessToken(code);
+        Map<String, Object> profile = fetchProfile(accessToken);
         if (profile == null || !(profile.get("id") instanceof Number id) || !(profile.get("login") instanceof String login)) {
-            throw new UnauthorizedException("GitHub returned an incomplete account profile.");
+            throw new GitHubConnectException(Reason.FAILED, "GitHub returned an incomplete account profile.");
         }
+        long githubUserId = id.longValue();
         String avatarUrl = profile.get("avatar_url") instanceof String avatar ? avatar : null;
-        accountRepository.findByUserId(oauthState.getUserId())
-                .ifPresentOrElse(account -> account.refresh(id.longValue(), login, avatarUrl, accessToken),
-                        () -> accountRepository.save(new GitHubAccount(oauthState.getUserId(), id.longValue(), login, avatarUrl, accessToken)));
+        UUID userId = oauthState.getUserId();
+
+        boolean linkedToAnotherUser = accountRepository.findByGithubUserId(githubUserId)
+                .filter(existing -> !existing.getUserId().equals(userId))
+                .isPresent();
+        if (linkedToAnotherUser) {
+            throw new GitHubConnectException(Reason.ALREADY_LINKED,
+                    "This GitHub account is already linked to another DevPulse user.");
+        }
+
+        accountRepository.findByUserId(userId)
+                .ifPresentOrElse(account -> account.refresh(githubUserId, login, avatarUrl, accessToken),
+                        () -> accountRepository.save(new GitHubAccount(userId, githubUserId, login, avatarUrl, accessToken)));
+    }
+
+    private String exchangeCodeForAccessToken(String code) {
+        Map<String, Object> tokenResponse;
+        try {
+            tokenResponse = restClient.post()
+                    .uri(GITHUB_TOKEN_URL)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("client_id", properties.clientId(), "client_secret", properties.clientSecret(),
+                            "code", code, "redirect_uri", properties.redirectUri()))
+                    .retrieve()
+                    .body(Map.class);
+        } catch (RestClientException exception) {
+            throw new GitHubConnectException(Reason.FAILED, "GitHub token exchange request failed.", exception);
+        }
+        if (tokenResponse != null && tokenResponse.get("access_token") instanceof String token && !token.isBlank()) {
+            return token;
+        }
+        // GitHub reports a bad code or bad client credentials as HTTP 200 with an "error" field.
+        Object error = tokenResponse == null ? null : tokenResponse.get("error");
+        throw new GitHubConnectException(Reason.FAILED, "GitHub did not return an access token (error=" + error + ").");
+    }
+
+    private Map<String, Object> fetchProfile(String accessToken) {
+        try {
+            return restClient.get()
+                    .uri(GITHUB_USER_URL)
+                    .header("Authorization", "Bearer " + accessToken)
+                    .header("X-GitHub-Api-Version", "2022-11-28")
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .body(Map.class);
+        } catch (RestClientException exception) {
+            throw new GitHubConnectException(Reason.FAILED, "GitHub profile request failed.", exception);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -106,9 +140,13 @@ public class GitHubOAuthService {
     }
 
     private void validateConfiguration() {
-        if (isBlank(properties.clientId()) || isBlank(properties.clientSecret()) || isBlank(properties.redirectUri())) {
+        if (!isConfigured()) {
             throw new ConflictException("GitHub OAuth is not configured. Set GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, and GITHUB_REDIRECT_URI.");
         }
+    }
+
+    private boolean isConfigured() {
+        return !isBlank(properties.clientId()) && !isBlank(properties.clientSecret()) && !isBlank(properties.redirectUri());
     }
 
     private boolean isBlank(String value) { return value == null || value.isBlank(); }

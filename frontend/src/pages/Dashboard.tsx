@@ -1,21 +1,97 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/useAuth'
+import { apiErrorMessage } from '../api/client'
 import { githubApi } from '../api/github'
 import { insightsApi } from '../api/insights'
-import Card from '../components/ui/Card'
-import Button from '../components/ui/Button'
+import { DoubleBezel } from '../components/DoubleBezel'
+import { IslandButton } from '../components/IslandButton'
+import { Reveal } from '../components/Reveal'
+import {
+  GithubLogo,
+  GitCommit,
+  ClockCounterClockwise,
+  Sparkle,
+  CheckCircle,
+  Circle,
+  WarningCircle,
+  X,
+} from '@phosphor-icons/react'
+import '../styles/theme.css'
 
-function formatDate(value: string | null): string {
+function formatDate(value: string | null | undefined): string {
   if (!value) return 'Never'
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+}
+
+type NoticeTone = 'success' | 'error'
+
+interface NoticeState {
+  tone: NoticeTone
+  message: string
+}
+
+type DashboardAction = 'connect' | 'sync' | 'insight'
+
+/**
+ * Maps the OAuth callback's ?github_error reason to fixed copy. The raw param
+ * is never rendered — anything unrecognised gets the generic 'failed' message.
+ */
+function githubErrorMessage(reason: string): string {
+  switch (reason) {
+    case 'denied':
+      return 'GitHub connection was cancelled.'
+    case 'expired':
+      return 'That GitHub connection request expired. Please try connecting again.'
+    case 'already_linked':
+      return 'That GitHub account is already connected to a different DevPulse account. Sign in with that account to use it.'
+    default:
+      return "Couldn't connect GitHub. Please try again."
+  }
+}
+
+interface NoticeProps extends NoticeState {
+  onDismiss?: () => void
+  className?: string
+}
+
+/** Soft tinted status pill-card (same shape as Login's error box). */
+function Notice({ tone, message, onDismiss, className = '' }: NoticeProps) {
+  const isError = tone === 'error'
+  const Icon = isError ? WarningCircle : CheckCircle
+
+  return (
+    <div
+      role={isError ? 'alert' : 'status'}
+      className={`flex items-start gap-2 rounded-2xl px-4 py-3 text-sm ring-1 transition-all duration-700 ease-fluid starting:translate-y-1 starting:opacity-0 ${
+        isError
+          ? 'bg-[var(--danger-soft)] text-[var(--danger)] ring-[var(--danger)]/30'
+          : 'bg-[var(--accent-soft)] text-[var(--accent)] ring-[var(--accent)]/30'
+      } ${className}`}
+    >
+      <Icon weight="light" className="mt-0.5 h-4 w-4 shrink-0" />
+      <span className="min-w-0 flex-1">{message}</span>
+      {onDismiss && (
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onClick={onDismiss}
+          className="-my-1 -mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-full opacity-70 transition-all duration-700 ease-fluid hover:bg-white/10 hover:opacity-100"
+        >
+          <X weight="light" className="h-4 w-4" />
+        </button>
+      )}
+    </div>
+  )
 }
 
 export default function Dashboard() {
   const { user, logout } = useAuth()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
+  const [notice, setNotice] = useState<NoticeState | null>(null)
+  const [lastAction, setLastAction] = useState<DashboardAction | null>(null)
 
   const { data: connection } = useQuery({
     queryKey: ['github-connection'],
@@ -29,10 +105,23 @@ export default function Dashboard() {
   })
 
   useEffect(() => {
-    if (searchParams.get('connected') === 'github') {
+    const connectedGithub = searchParams.get('connected') === 'github'
+    const githubError = searchParams.get('github_error')
+    if (!connectedGithub && githubError === null) return
+
+    if (connectedGithub) {
       queryClient.invalidateQueries({ queryKey: ['github-connection'] })
-      setSearchParams({}, { replace: true })
     }
+    setNotice(
+      githubError !== null
+        ? { tone: 'error', message: githubErrorMessage(githubError) }
+        : { tone: 'success', message: 'GitHub connected.' }
+    )
+
+    const next = new URLSearchParams(searchParams)
+    next.delete('connected')
+    next.delete('github_error')
+    setSearchParams(next, { replace: true })
   }, [searchParams, queryClient, setSearchParams])
 
   const connectMutation = useMutation({
@@ -56,200 +145,324 @@ export default function Dashboard() {
     },
   })
 
-  const metrics = [
+  // Only the most recently started action's outcome is shown. Starting any action
+  // swaps `lastAction`, and that mutation is pending, so the previous message clears.
+  const startAction = (action: DashboardAction) => {
+    setLastAction(action)
+    if (action === 'connect') connectMutation.mutate()
+    else if (action === 'sync') syncMutation.mutate()
+    else generateInsightMutation.mutate()
+  }
+
+  let actionFeedback: NoticeState | null = null
+  if (lastAction === 'connect' && connectMutation.isError) {
+    actionFeedback = {
+      tone: 'error',
+      message: apiErrorMessage(connectMutation.error, "Couldn't start the GitHub connection. Please try again."),
+    }
+  } else if (lastAction === 'sync' && syncMutation.isError) {
+    actionFeedback = {
+      tone: 'error',
+      message: apiErrorMessage(syncMutation.error, 'Sync failed. Please try again.'),
+    }
+  } else if (lastAction === 'sync' && syncMutation.isSuccess) {
+    actionFeedback = {
+      tone: 'success',
+      message: `Synced ${syncMutation.data.reposSynced} repos · ${syncMutation.data.commitsSynced} new commits.`,
+    }
+  } else if (lastAction === 'insight' && generateInsightMutation.isError) {
+    actionFeedback = {
+      tone: 'error',
+      message: apiErrorMessage(generateInsightMutation.error, "Couldn't generate an insight. Please try again."),
+    }
+  }
+
+  const connected = connection?.connected === true
+  const name = user?.email?.split('@')[0]
+
+  // onSuccess navigates away to GitHub, so treat success as still in flight.
+  const connecting = connectMutation.isPending || connectMutation.isSuccess
+  const syncLabel = syncMutation.isPending ? 'Syncing…' : 'Sync now'
+  const connectLabel = connecting ? 'Connecting…' : 'Connect GitHub'
+
+  const steps = [
     {
-      label: 'GitHub Repos',
-      value: String(connection?.repoCount ?? 0),
-      trend: connection?.connected ? 'Synced' : 'Connect GitHub to sync',
-      icon: (
-        <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" />
-        </svg>
-      ),
-      color: 'from-emerald-400 to-teal-500',
+      num: '01',
+      title: 'Account created',
+      body: 'Your DevPulse account is active and ready.',
+      done: true,
     },
     {
-      label: 'Total Commits',
-      value: connection?.connected ? String(connection.commitCount) : '-',
-      trend: 'Last 14 days',
-      icon: (
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-        </svg>
-      ),
-      color: 'from-cyan-400 to-blue-500',
+      num: '02',
+      title: 'Connect GitHub',
+      body: 'Link your GitHub account to start syncing your data.',
+      done: connected,
     },
     {
-      label: 'Last Synced',
-      value: connection?.connected ? formatDate(connection.lastSyncedAt) : '-',
-      trend: 'GitHub activity',
-      icon: (
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-        </svg>
-      ),
-      color: 'from-purple-500 to-pink-500',
-    },
-    {
-      label: 'AI Insights',
-      value: insight ? 'Generated' : '-',
-      trend: insight ? formatDate(insight.generatedAt) : 'Not generated yet',
-      icon: (
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-        </svg>
-      ),
-      color: 'from-amber-400 to-orange-500',
+      num: '03',
+      title: 'Explore insights',
+      body: 'Discover AI-powered insights about your development activity.',
+      done: Boolean(insight),
     },
   ]
 
   return (
-    <div className="min-h-screen bg-slate-950">
-      {/* Header */}
-      <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur-xl sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div>
-            <div className="text-xs font-semibold tracking-[0.2em] text-cyan-400">DEVPULSE</div>
-            <h1 className="text-xl font-bold mt-1">Dashboard</h1>
+    <div className="dp-theme relative min-h-[100dvh] overflow-x-hidden">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[640px]"
+        style={{
+          backgroundImage:
+            'radial-gradient(40% 35% at 10% 0%, rgba(52,211,153,0.14), transparent), radial-gradient(35% 30% at 100% 10%, rgba(139,92,246,0.14), transparent)',
+        }}
+      />
+
+      <header className="sticky top-0 z-40 px-4 pt-6">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 rounded-full bg-white/[0.04] px-4 py-3 ring-1 ring-white/10 backdrop-blur-2xl">
+          <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-white">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+              <path
+                d="M2 12H7L9.5 5L14.5 19L17 12H22"
+                stroke="var(--accent)"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <span className="truncate">DevPulse</span>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="text-sm text-slate-400">
-              {user?.email}
-            </div>
-            <Button variant="ghost" size="sm" onClick={logout}>
-              Sign Out
-            </Button>
+
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+            <span className="hidden truncate text-sm text-white/60 sm:inline">{user?.email}</span>
+            <IslandButton variant="ghost" icon={null} onClick={logout}>
+              Sign out
+            </IslandButton>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Welcome Banner */}
-        <Card variant="glass" className="mb-8 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-cyan-500/5 rounded-full blur-3xl" />
-          <div className="relative">
-            <h2 className="text-2xl font-bold mb-2">
-              Welcome back, {user?.email?.split('@')[0]}! 👋
-            </h2>
-            <p className="text-slate-400">
-              Your developer command center is ready. Connect your GitHub account to unlock powerful insights.
-            </p>
-          </div>
-        </Card>
-
-        {/* Metrics Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {metrics.map((metric, index) => (
-            <Card key={index} variant="glass" hover className="animate-fade-in" style={{ animationDelay: `${index * 50}ms` }}>
-              <div className="flex items-start justify-between mb-4">
-                <div className={`p-3 rounded-lg bg-gradient-to-br ${metric.color} bg-opacity-10`}>
-                  <div className={`text-transparent bg-clip-text bg-gradient-to-r ${metric.color}`}>
-                    {metric.icon}
-                  </div>
-                </div>
-              </div>
-              <div className="text-3xl font-bold mb-1">{metric.value}</div>
-              <div className="text-sm text-slate-400">{metric.label}</div>
-              <div className="text-xs text-slate-500 mt-2">{metric.trend}</div>
-            </Card>
-          ))}
-        </div>
-
-        {/* AI Insight */}
-        {insight && (
-          <Card variant="glass" className="mb-8">
-            <h3 className="text-xl font-semibold mb-2">Latest Insight</h3>
-            <p className="text-sm text-slate-300 leading-relaxed">{insight.summary}</p>
-          </Card>
+      <main className="mx-auto max-w-5xl px-4">
+        {notice && (
+          <Notice
+            tone={notice.tone}
+            message={notice.message}
+            onDismiss={() => setNotice(null)}
+            className="mt-8"
+          />
         )}
 
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card variant="glass">
-            <h3 className="text-xl font-semibold mb-4">Quick Actions</h3>
-            <div className="space-y-3">
-              <Button
-                variant="secondary"
-                className="w-full justify-start"
-                size="lg"
-                loading={connectMutation.isPending || syncMutation.isPending}
-                onClick={() => (connection?.connected ? syncMutation.mutate() : connectMutation.mutate())}
-              >
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" />
-                </svg>
-                {connection?.connected ? 'Sync Now' : 'Connect GitHub Account'}
-              </Button>
-              {connection?.connected && (
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start"
-                  loading={generateInsightMutation.isPending}
-                  onClick={() => generateInsightMutation.mutate()}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  Generate Insight
-                </Button>
-              )}
-              <Button variant="ghost" className="w-full justify-start">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                View Profile
-              </Button>
-            </div>
-          </Card>
+        <Reveal>
+          <section className="pt-12 pb-20 sm:pt-16 sm:pb-28">
+            <span
+              className="inline-flex rounded-full px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em]"
+              style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+            >
+              Your command center
+            </span>
+            <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white sm:text-4xl lg:text-5xl">
+              Welcome back{name ? `, ${name}` : ''}.
+            </h1>
+            <p className="mt-4 max-w-2xl text-base text-white/60 sm:text-lg">
+              {connected
+                ? 'Your GitHub account is connected. Sync whenever you want a fresh read, and generate an insight when you\'re ready.'
+                : 'Connect your GitHub account to start syncing commit activity and generating plain-language insights.'}
+            </p>
 
-          <Card variant="glass">
-            <h3 className="text-xl font-semibold mb-4">Getting Started</h3>
-            <div className="space-y-4 text-sm text-slate-400">
-              <div className="flex items-start gap-3">
-                <div className="w-6 h-6 rounded-full bg-cyan-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <svg className="w-4 h-4 text-cyan-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div>
-                  <div className="font-medium text-slate-300 mb-1">Account Created</div>
-                  <div>Your DevPulse account is active and ready.</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${connection?.connected ? 'bg-cyan-500/20 text-cyan-400' : 'bg-slate-700 text-slate-500'}`}>
-                  {connection?.connected ? (
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
-                  ) : (
-                    '2'
-                  )}
-                </div>
-                <div>
-                  <div className="font-medium text-slate-300 mb-1">Connect GitHub</div>
-                  <div>Link your GitHub account to start syncing your data.</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${insight ? 'bg-cyan-500/20 text-cyan-400' : 'bg-slate-700 text-slate-500'}`}>
-                  {insight ? (
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
-                  ) : (
-                    '3'
-                  )}
-                </div>
-                <div>
-                  <div className="font-medium text-slate-300 mb-1">Explore Insights</div>
-                  <div>Discover AI-powered insights about your development activity.</div>
-                </div>
-              </div>
+            <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-6">
+              <Reveal delay={0.05 * 0} className="lg:col-span-4">
+                <DoubleBezel size="md" className="h-full" innerClassName="flex h-full flex-col gap-6 p-6">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">Commits</span>
+                    <span
+                      className="flex h-8 w-8 items-center justify-center rounded-full"
+                      style={{ background: 'var(--accent-soft)' }}
+                    >
+                      <GitCommit weight="light" className="h-4 w-4" style={{ color: 'var(--accent)' }} />
+                    </span>
+                  </div>
+                  <div className="mt-auto">
+                    <div className="text-4xl font-semibold text-white lg:text-5xl">
+                      {connected ? connection.commitCount : '–'}
+                    </div>
+                    <div className="mt-1 text-xs text-white/40">last 14 days</div>
+                  </div>
+                </DoubleBezel>
+              </Reveal>
+
+              <Reveal delay={0.05 * 1} className="lg:col-span-2">
+                <DoubleBezel size="md" className="h-full" innerClassName="flex h-full flex-col gap-6 p-6">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">Last synced</span>
+                    <span
+                      className="flex h-8 w-8 items-center justify-center rounded-full"
+                      style={{ background: 'var(--accent-2-soft)' }}
+                    >
+                      <ClockCounterClockwise weight="light" className="h-4 w-4" style={{ color: 'var(--accent-2)' }} />
+                    </span>
+                  </div>
+                  <div className="mt-auto">
+                    <div className="text-lg font-semibold text-white">
+                      {connected ? formatDate(connection.lastSyncedAt) : '–'}
+                    </div>
+                    <div className="mt-1 text-xs text-white/40">GitHub activity</div>
+                  </div>
+                </DoubleBezel>
+              </Reveal>
+
+              <Reveal delay={0.05 * 2} className="lg:col-span-3">
+                <DoubleBezel size="md" className="h-full" innerClassName="flex h-full flex-col gap-6 p-6">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">AI insight</span>
+                    <span
+                      className="flex h-8 w-8 items-center justify-center rounded-full"
+                      style={{ background: 'var(--accent-2-soft)' }}
+                    >
+                      <Sparkle weight="light" className="h-4 w-4" style={{ color: 'var(--accent-2)' }} />
+                    </span>
+                  </div>
+                  <div className="mt-auto">
+                    <div className="text-lg font-semibold text-white">{insight ? 'Generated' : '–'}</div>
+                    <div className="mt-1 text-xs text-white/40">
+                      {insight ? formatDate(insight.generatedAt) : 'not generated yet'}
+                    </div>
+                  </div>
+                </DoubleBezel>
+              </Reveal>
+
+              <Reveal delay={0.05 * 3} className="lg:col-span-3">
+                <DoubleBezel size="md" className="h-full" innerClassName="flex h-full flex-col gap-6 p-6">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">GitHub repos</span>
+                    <span
+                      className="flex h-8 w-8 items-center justify-center rounded-full"
+                      style={{ background: 'var(--accent-soft)' }}
+                    >
+                      <GithubLogo weight="light" className="h-4 w-4" style={{ color: 'var(--accent)' }} />
+                    </span>
+                  </div>
+                  <div className="mt-auto">
+                    <div className="text-4xl font-semibold text-white">{connected ? connection.repoCount : '–'}</div>
+                    <div className="mt-1 text-xs text-white/40">{connected ? 'synced' : 'connect to sync'}</div>
+                  </div>
+                </DoubleBezel>
+              </Reveal>
             </div>
-          </Card>
-        </div>
+
+            <Reveal delay={0.1} className="mt-10 flex flex-wrap items-center gap-4">
+              <IslandButton
+                type="button"
+                disabled={connecting || syncMutation.isPending}
+                onClick={() => startAction(connected ? 'sync' : 'connect')}
+              >
+                {connected ? syncLabel : connectLabel}
+              </IslandButton>
+              {connected && (
+                <IslandButton
+                  variant="ghost"
+                  type="button"
+                  disabled={generateInsightMutation.isPending}
+                  onClick={() => startAction('insight')}
+                >
+                  {generateInsightMutation.isPending ? 'Generating…' : 'Generate insight'}
+                </IslandButton>
+              )}
+              {connected && (
+                <IslandButton
+                  variant="ghost"
+                  type="button"
+                  icon={null}
+                  disabled={connecting || syncMutation.isPending}
+                  onClick={() => startAction('connect')}
+                >
+                  {connecting ? 'Reconnecting…' : 'Reconnect GitHub'}
+                </IslandButton>
+              )}
+            </Reveal>
+
+            {actionFeedback && (
+              <Notice
+                tone={actionFeedback.tone}
+                message={actionFeedback.message}
+                onDismiss={() => setLastAction(null)}
+                className="mt-4 max-w-2xl"
+              />
+            )}
+          </section>
+        </Reveal>
+
+        <Reveal>
+          <section className="pb-20 sm:pb-28">
+            <span
+              className="inline-flex rounded-full px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em]"
+              style={{ background: 'var(--accent-2-soft)', color: 'var(--accent-2)' }}
+            >
+              Latest insight
+            </span>
+            <h2 className="mt-5 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+              What DevPulse is seeing right now.
+            </h2>
+
+            {insight ? (
+              <DoubleBezel className="mt-8 max-w-2xl" innerClassName="flex flex-col gap-3 p-8">
+                <span
+                  className="inline-flex w-fit rounded-full px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em]"
+                  style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+                >
+                  Generated insight
+                </span>
+                <h3 className="text-lg font-semibold text-white">{formatDate(insight.generatedAt)}</h3>
+                <p className="text-sm leading-relaxed text-white/60">{insight.summary}</p>
+              </DoubleBezel>
+            ) : (
+              <p className="mt-8 max-w-xl text-sm text-white/40">
+                {connected
+                  ? 'No insight yet — generate one above once you\'ve synced some activity.'
+                  : 'Connect GitHub and sync first, then generate your first insight.'}
+              </p>
+            )}
+          </section>
+        </Reveal>
+
+        <Reveal>
+          <section className="pb-20 sm:pb-28">
+            <span
+              className="inline-flex rounded-full px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em]"
+              style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+            >
+              Getting started
+            </span>
+            <h2 className="mt-5 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+              Three steps to your first insight.
+            </h2>
+
+            <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
+              {steps.map((step, index) => (
+                <Reveal key={step.num} delay={0.05 * index}>
+                  <DoubleBezel size="md" className="h-full" innerClassName="flex h-full flex-col gap-3 p-6">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">{step.num}</span>
+                      {step.done ? (
+                        <CheckCircle weight="light" className="h-5 w-5" style={{ color: 'var(--accent)' }} />
+                      ) : (
+                        <Circle weight="light" className="h-5 w-5 text-white/20" />
+                      )}
+                    </div>
+                    <h3 className="text-lg font-semibold text-white">{step.title}</h3>
+                    <p className="text-sm text-white/60">{step.body}</p>
+                    <span className="mt-auto text-[10px] font-medium uppercase tracking-[0.2em] text-white/40">
+                      {step.done ? 'done' : 'not yet'}
+                    </span>
+                  </DoubleBezel>
+                </Reveal>
+              ))}
+            </div>
+          </section>
+        </Reveal>
+
+        <footer className="flex flex-col items-center gap-1 pb-16 text-center text-xs text-white/30 sm:flex-row sm:justify-between sm:text-left">
+          <span>DevPulse</span>
+          <span>Developer intelligence for engineering teams</span>
+        </footer>
       </main>
     </div>
   )

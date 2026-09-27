@@ -1,8 +1,9 @@
 package com.devpulse.common.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.devpulse.insights.service.AnthropicProperties;
+import com.devpulse.insights.service.GeminiProperties;
 import com.devpulse.integration.github.GitHubProperties;
+import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -27,7 +28,7 @@ import java.util.Map;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties({JwtProperties.class, GitHubProperties.class, AnthropicProperties.class})
+@EnableConfigurationProperties({JwtProperties.class, GitHubProperties.class, GeminiProperties.class})
 public class SecurityConfig {
 
     @Bean
@@ -38,6 +39,9 @@ public class SecurityConfig {
                 .cors(cors -> { })
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
+                        // The JWT is not re-read on the ERROR dispatch to /error, so without this every error
+                        // status (404, 400, 500...) is replaced by the 401 entry point below.
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers("/api/v1/auth/**", "/api/v1/health", "/actuator/health/**",
                                 "/api/v1/integrations/github/callback").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()

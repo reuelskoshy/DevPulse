@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth } from './context/AuthContext'
+import { useAuth } from './context/useAuth'
+import Landing from './pages/Landing'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
@@ -51,6 +52,14 @@ function App() {
     <Routes>
       {/* Public routes */}
       <Route
+        path="/"
+        element={
+          <PublicRoute>
+            <Landing />
+          </PublicRoute>
+        }
+      />
+      <Route
         path="/login"
         element={
           <PublicRoute>
@@ -77,11 +86,8 @@ function App() {
         }
       />
 
-      {/* Redirect root to dashboard if logged in, otherwise to login */}
-      <Route path="/" element={<Navigate to="/login" replace />} />
-
       {/* Catch all */}
-      <Route path="*" element={<Navigate to="/login" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

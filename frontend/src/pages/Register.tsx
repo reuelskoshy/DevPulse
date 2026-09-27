@@ -1,9 +1,13 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import axios from 'axios'
 import { Link, useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
-import Button from '../components/ui/Button'
-import Input from '../components/ui/Input'
+import { Envelope, Eye, EyeSlash, LockKey, User, WarningCircle } from '@phosphor-icons/react'
+import { useAuth } from '../context/useAuth'
+import { DoubleBezel } from '../components/DoubleBezel'
+import { IslandButton } from '../components/IslandButton'
+import { Reveal } from '../components/Reveal'
+import '../styles/theme.css'
 
 export default function Register() {
   const navigate = useNavigate()
@@ -12,23 +16,16 @@ export default function Register() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-
-  const validatePassword = (pass: string) => {
-    if (pass.length < 12) {
-      return 'Password must be at least 12 characters'
-    }
-    return ''
-  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
 
-    const passwordError = validatePassword(password)
-    if (passwordError) {
-      setError(passwordError)
+    if (password.length < 12) {
+      setError('Password must be at least 12 characters')
       return
     }
 
@@ -42,104 +39,186 @@ export default function Register() {
     try {
       await register(name, email, password)
       navigate('/app/dashboard')
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Registration failed. Please try again.')
+    } catch (err) {
+      const message = axios.isAxiosError<{ message?: string }>(err) ? err.response?.data?.message : undefined
+      setError(message || 'Registration failed. Please try again.')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen grid md:grid-cols-2">
-      {/* Left side - Branding */}
-      <div className="hidden md:flex flex-col justify-center items-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-12 relative overflow-hidden">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
-
-        <div className="relative z-10 max-w-md">
-          <div className="text-xs font-semibold tracking-[0.2em] text-cyan-400 mb-4">DEVPULSE</div>
-          <h1 className="text-4xl font-bold tracking-tight mb-4 gradient-text">
-            Start Your Journey
-          </h1>
-          <p className="text-slate-400 text-lg leading-relaxed">
-            Join thousands of developers using DevPulse to gain powerful insights and boost productivity.
-          </p>
-        </div>
-      </div>
-
-      {/* Right side - Form */}
-      <div className="flex flex-col justify-center items-center p-6 md:p-12 bg-slate-950">
-        <div className="w-full max-w-md">
-          <div className="mb-8">
-            <h2 className="text-3xl font-bold mb-2">Create Account</h2>
-            <p className="text-slate-400">Get started with DevPulse today</p>
+    <div
+      className="dp-theme relative min-h-screen overflow-hidden px-4 py-24 sm:py-32"
+      style={{
+        backgroundImage:
+          'radial-gradient(40% 35% at 10% 0%, rgba(52,211,153,0.14), transparent), radial-gradient(35% 30% at 100% 10%, rgba(139,92,246,0.14), transparent)',
+      }}
+    >
+      <div className="mx-auto grid w-full max-w-5xl items-center gap-12 lg:grid-cols-2 lg:gap-20">
+        <Reveal className="order-2 lg:order-1">
+          <div className="flex flex-col gap-6 text-center lg:text-left">
+            <span
+              className="inline-flex w-fit items-center justify-center self-center rounded-full px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em] lg:self-start"
+              style={{ color: 'var(--accent)', background: 'var(--accent-soft)' }}
+            >
+              DevPulse
+            </span>
+            <h1 className="text-3xl font-semibold leading-tight tracking-tight text-[var(--text)] sm:text-4xl">
+              See what your team shipped, in plain language.
+            </h1>
+            <p className="mx-auto max-w-md text-base leading-relaxed text-[var(--text-muted)] lg:mx-0">
+              Connect GitHub, sync on demand, and get an AI-generated read on delivery pace and risk
+              &mdash; no black box dashboard to decode.
+            </p>
           </div>
+        </Reveal>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="p-4 bg-rose-500/10 border border-rose-500/50 rounded-lg text-rose-400 text-sm flex items-start gap-2">
-                <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                </svg>
-                {error}
+        <Reveal delay={0.1} className="order-1 lg:order-2">
+          <DoubleBezel innerClassName="flex flex-col gap-8 p-8 sm:p-10">
+            <div>
+              <h2 className="text-2xl font-semibold text-[var(--text)]">Create account</h2>
+              <p className="mt-1.5 text-sm text-[var(--text-muted)]">Get started with DevPulse today.</p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+              {error && (
+                <div
+                  className="flex items-center gap-2.5 rounded-2xl px-4 py-3 text-sm ring-1 ring-white/5"
+                  style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}
+                >
+                  <WarningCircle weight="light" className="h-4 w-4 shrink-0" />
+                  {error}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="register-name"
+                  className="text-xs font-medium uppercase tracking-[0.08em] text-[var(--text-dim)]"
+                >
+                  Name
+                </label>
+                <div
+                  className="relative flex items-center rounded-2xl ring-1 ring-white/10 transition-colors duration-700 ease-fluid focus-within:ring-white/25"
+                  style={{ background: 'var(--surface-2)' }}
+                >
+                  <User weight="light" className="pointer-events-none absolute left-4 h-4 w-4 text-[var(--text-dim)]" />
+                  <input
+                    id="register-name"
+                    type="text"
+                    placeholder="Dev User"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    autoFocus
+                    autoComplete="name"
+                    className="w-full rounded-2xl bg-transparent py-3 pl-11 pr-4 text-sm text-[var(--text)] placeholder:text-[var(--text-dim)] outline-none"
+                  />
+                </div>
               </div>
-            )}
 
-            <Input
-              label="Name"
-              type="text"
-              placeholder="Dev User"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              autoFocus
-            />
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="register-email"
+                  className="text-xs font-medium uppercase tracking-[0.08em] text-[var(--text-dim)]"
+                >
+                  Email
+                </label>
+                <div
+                  className="relative flex items-center rounded-2xl ring-1 ring-white/10 transition-colors duration-700 ease-fluid focus-within:ring-white/25"
+                  style={{ background: 'var(--surface-2)' }}
+                >
+                  <Envelope weight="light" className="pointer-events-none absolute left-4 h-4 w-4 text-[var(--text-dim)]" />
+                  <input
+                    id="register-email"
+                    type="email"
+                    placeholder="dev@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    autoComplete="email"
+                    className="w-full rounded-2xl bg-transparent py-3 pl-11 pr-4 text-sm text-[var(--text)] placeholder:text-[var(--text-dim)] outline-none"
+                  />
+                </div>
+              </div>
 
-            <Input
-              label="Email"
-              type="email"
-              placeholder="dev@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              leftIcon={
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
-                </svg>
-              }
-            />
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="register-password"
+                  className="text-xs font-medium uppercase tracking-[0.08em] text-[var(--text-dim)]"
+                >
+                  Password
+                </label>
+                <div
+                  className="relative flex items-center rounded-2xl ring-1 ring-white/10 transition-colors duration-700 ease-fluid focus-within:ring-white/25"
+                  style={{ background: 'var(--surface-2)' }}
+                >
+                  <LockKey weight="light" className="pointer-events-none absolute left-4 h-4 w-4 text-[var(--text-dim)]" />
+                  <input
+                    id="register-password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="At least 12 characters"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoComplete="new-password"
+                    className="w-full rounded-2xl bg-transparent py-3 pl-11 pr-11 text-sm text-[var(--text)] placeholder:text-[var(--text-dim)] outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    tabIndex={-1}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="absolute right-4 flex h-4 w-4 items-center justify-center text-[var(--text-dim)] transition-colors duration-700 ease-fluid hover:text-[var(--text)]"
+                  >
+                    {showPassword ? <EyeSlash weight="light" className="h-4 w-4" /> : <Eye weight="light" className="h-4 w-4" />}
+                  </button>
+                </div>
+                <span className="text-xs text-[var(--text-dim)]">Must be at least 12 characters long</span>
+              </div>
 
-            <Input
-              label="Password"
-              type="password"
-              placeholder="At least 12 characters"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              helperText="Must be at least 12 characters long"
-            />
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="register-confirm"
+                  className="text-xs font-medium uppercase tracking-[0.08em] text-[var(--text-dim)]"
+                >
+                  Confirm password
+                </label>
+                <div
+                  className="relative flex items-center rounded-2xl ring-1 ring-white/10 transition-colors duration-700 ease-fluid focus-within:ring-white/25"
+                  style={{ background: 'var(--surface-2)' }}
+                >
+                  <LockKey weight="light" className="pointer-events-none absolute left-4 h-4 w-4 text-[var(--text-dim)]" />
+                  <input
+                    id="register-confirm"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Re-enter your password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    autoComplete="new-password"
+                    className="w-full rounded-2xl bg-transparent py-3 pl-11 pr-4 text-sm text-[var(--text)] placeholder:text-[var(--text-dim)] outline-none"
+                  />
+                </div>
+              </div>
 
-            <Input
-              label="Confirm Password"
-              type="password"
-              placeholder="Re-enter your password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-            />
+              <IslandButton type="submit" disabled={loading} className="mt-2 w-full justify-between">
+                {loading ? 'Creating account…' : 'Create account'}
+              </IslandButton>
+            </form>
 
-            <Button type="submit" variant="primary" size="lg" className="w-full" loading={loading}>
-              Create Account
-            </Button>
-          </form>
-
-          <div className="mt-6 text-center text-sm text-slate-400">
-            Already have an account?{' '}
-            <Link to="/login" className="text-cyan-400 hover:text-cyan-300 font-semibold transition-colors">
-              Sign in
-            </Link>
-          </div>
-        </div>
+            <p className="text-center text-sm text-[var(--text-muted)]">
+              Already have an account?{' '}
+              <Link
+                to="/login"
+                className="font-medium text-[var(--text)] underline decoration-white/20 underline-offset-4 transition-colors duration-700 ease-fluid hover:decoration-white/50"
+              >
+                Sign in
+              </Link>
+            </p>
+          </DoubleBezel>
+        </Reveal>
       </div>
     </div>
   )

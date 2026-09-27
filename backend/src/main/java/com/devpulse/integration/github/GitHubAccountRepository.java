@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface GitHubAccountRepository extends JpaRepository<GitHubAccount, UUID> {
     Optional<GitHubAccount> findByUserId(UUID userId);
+
+    Optional<GitHubAccount> findByGithubUserId(Long githubUserId);
 }
