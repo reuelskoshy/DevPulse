@@ -3,6 +3,7 @@ package com.devpulse.user.service;
 import java.util.List;
 import java.util.UUID;
 
+import com.devpulse.common.exception.BadRequestException;
 import com.devpulse.common.exception.ForbiddenException;
 import com.devpulse.common.exception.NotFoundException;
 import com.devpulse.common.security.UserPrincipal;
@@ -70,6 +71,9 @@ public class DpUserService {
     public TeamMemberResponse updateStatus(UUID targetId, UpdateStatusRequest request, UserPrincipal principal) {
         DpUser target = requireVisibleUser(targetId, principal);
         requireManagementAccess(target, principal);
+        if (isSelf(target, principal) && !request.activeStatus()) {
+            throw new BadRequestException("You cannot deactivate your own account.");
+        }
 
         target.setActiveStatus(request.activeStatus());
         target.setActiveStatusReason(request.activeStatusReason());
@@ -80,6 +84,23 @@ public class DpUserService {
     public TeamMemberResponse updateRole(UUID targetId, UpdateRoleRequest request, UserPrincipal principal) {
         DpUser target = requireVisibleUser(targetId, principal);
         DpUser parent = request.parentId() == null ? null : requireVisibleUser(request.parentId(), principal);
+        if (isSelf(target, principal) && request.role() != target.getRole()) {
+            throw new BadRequestException("You cannot change your own role.");
+        }
+        if (parent != null) {
+            if (parent.getRole() == DpUserRole.MEMBER) {
+                throw new BadRequestException("A manager must have the MANAGER or ADMIN role.");
+            }
+            for (DpUser ancestor = parent; ancestor != null; ancestor = ancestor.getParent()) {
+                if (ancestor.getId().equals(target.getId())) {
+                    throw new BadRequestException("A user cannot report to themselves or to one of their reports.");
+                }
+            }
+        }
+        if (request.role() == DpUserRole.MEMBER && target.getRole() != DpUserRole.MEMBER
+                && dpUserRepository.existsByParent(target)) {
+            throw new BadRequestException("Reassign this user's reports before making them a member.");
+        }
         target.setRole(request.role());
         target.setParent(parent);
         return TeamMemberResponse.from(dpUserRepository.save(target));

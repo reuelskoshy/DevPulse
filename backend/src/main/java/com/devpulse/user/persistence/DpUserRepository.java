@@ -20,6 +20,8 @@ public interface DpUserRepository extends JpaRepository<DpUser, UUID> {
 
     List<DpUser> findByEmailIn(Collection<String> emails);
 
+    boolean existsByParent(DpUser parent);
+
     /** Every live-demo user; used only by the demo seeder. */
     List<DpUser> findByDemoTrue();
 }

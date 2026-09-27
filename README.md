@@ -52,7 +52,16 @@ docker exec -it devpulse-mysql-1 mysql -uroot -p db_DevPulse
 
 ## Team management endpoints
 
-Backed by the `dp_user` table. Roles are `ADMIN`, `MANAGER`, `MEMBER`; `MANAGER` sees/manages users whose `parent` points at them, `ADMIN` sees/manages everyone, `MEMBER` sees only themselves. New registrations default to `MEMBER` with no manager.
+Backed by the `dp_user` table. Roles are `ADMIN`, `MANAGER`, `MEMBER`; `MANAGER` sees/manages users whose `parent` points at them, `ADMIN` sees/manages everyone, `MEMBER` sees only themselves. New registrations default to `MEMBER` with no manager, except emails listed in `ADMIN_EMAILS`, which start as `ADMIN`.
+
+Admins manage roles, managers, and active status on the **People** page (`/app/people`). The API enforces these rules:
+
+- You can't change your own role or deactivate yourself, so the last admin can't lock themselves out.
+- A manager must have the `MANAGER` or `ADMIN` role.
+- Reporting lines can't loop: nobody reports to themselves or to one of their own reports.
+- A manager who still has reports can't be made a `MEMBER`.
+
+Role changes take effect at the user's next sign-in, because the role is carried in the access token.
 
 - `GET /api/v1/team-members` — list scoped to your role
 - `GET /api/v1/team-members/{id}` — self, admin, or that user's manager
@@ -71,7 +80,8 @@ The connection requests `read:user` and `repo` scopes. The access token is encry
 
 ## GitHub sync
 
-- `POST /api/v1/integrations/github/sync` — pulls every repo the connected account can access and the account's own commits from the last 14 days (90 on first sync), deduplicated and safe to re-run. No automatic/background sync — this is an on-demand action.
+- `POST /api/v1/integrations/github/sync` — pulls every repo the connected account can access and the account's own commits from the last 14 days (90 on first sync), deduplicated and safe to re-run.
+- **Automatic sync.** Every `AUTO_SYNC_CHECK_INTERVAL` (default 15 minutes), the API re-syncs connected, active, non-demo accounts whose last sync is older than `AUTO_SYNC_MAX_AGE` (default 6 hours), at most 25 per run. Accounts that have never synced go first, then the stalest. If one account fails, for example because its token was revoked, the API logs it, skips it, and retries it on a later run. Set `AUTO_SYNC_ENABLED=false` to turn this off.
 
 ## AI insights
 
@@ -88,6 +98,15 @@ The connection requests `read:user` and `repo` scopes. The access token is encry
 
 Who sees whom follows the team roles. `ADMIN` sees everyone. `MANAGER` sees themselves and their direct reports (users whose `parent` is them). `MEMBER` sees only themselves. Demo users and real users never see each other. No tokens, phone numbers, or addresses are returned.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request to `master`:
+
+- the backend tests, with `mvn -B test` on Temurin 21;
+- the frontend lint and production build, with `npm ci`, `npm run lint` and `npm run build` on Node 22.
+
+The backend tests need no database.
+
 ## Environment variables
 
 The root `.env` file is exclusively for local Docker Compose infrastructure. Backend secrets live in `backend/.env` (copied from `backend/.env.example`, never committed):
@@ -95,6 +114,8 @@ The root `.env` file is exclusively for local Docker Compose infrastructure. Bac
 - `TOKEN_ENCRYPTION_KEY` — base64, 32 bytes, encrypts the GitHub access token at rest. Changing it invalidates previously-connected accounts; reconnect GitHub afterward.
 - `GEMINI_API_KEY` / `GEMINI_MODEL` — used to generate AI insights (free tier via [aistudio.google.com](https://aistudio.google.com), no card required).
 - `DEMO_ENABLED` — `true` seeds the read-only sample team and turns on **Try the live demo** (`POST /api/v1/auth/demo`). Defaults to `false`.
+- `ADMIN_EMAILS` — comma-separated emails that are always `ADMIN`. They're promoted at startup if the account exists, or at registration otherwise. This is how the first admin is created. Demo accounts are never promoted.
+- `AUTO_SYNC_ENABLED` / `AUTO_SYNC_MAX_AGE` / `AUTO_SYNC_CHECK_INTERVAL` — background GitHub sync (see [GitHub sync](#github-sync)). The durations are ISO-8601 values, for example `PT6H`.
 - `PORT` — the port the API listens on, set by hosting platforms. Falls back to `BACKEND_PORT`, then 8080.
 
 ## Deploy
@@ -126,6 +147,7 @@ The repo includes `backend/Dockerfile`, `render.yaml`, and `frontend/vercel.json
    - `DATABASE_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD` come from step 1.
    - `JWT_SECRET` and `TOKEN_ENCRYPTION_KEY` come from step 2.
    - `FRONTEND_ORIGIN` is the Vercel URL. If you don't have it yet, enter a placeholder and fix it in step 5.
+   - `ADMIN_EMAILS` is the email you'll sign up with, so your account becomes the first admin.
    - The `GITHUB_*` variables and `GEMINI_API_KEY` are optional (see step 6). Leave them blank for a demo-only deploy; the API then reports those features as not configured.
 
    Render only prompts for these when the Blueprint is first created. To change them later, use the service's **Environment** tab. Once the service is live, `https://<render-service>.onrender.com/api/v1/health` should return `"status": "UP"`.
@@ -147,7 +169,7 @@ The repo includes `backend/Dockerfile`, `render.yaml`, and `frontend/vercel.json
    - `GITHUB_FRONTEND_SUCCESS_URL=https://<your-project>.vercel.app/app/dashboard`.
    - `GEMINI_API_KEY`, to turn on insights.
 
-7. **Cold starts.** Render's free instance sleeps after 15 minutes without traffic. The next request wakes it, which takes roughly 30–60 seconds, sometimes longer while the JVM starts. The first **Try the live demo** click after a quiet spell can be slow. The instance has 512 MB of RAM, and `JAVA_OPTS` in `render.yaml` is sized for that. The heap is a percentage of container memory, so it grows with a bigger plan. On a bigger plan, you can also drop `-XX:TieredStopAtLevel=1`.
+7. **Cold starts.** Render's free instance sleeps after 15 minutes without traffic. The next request wakes it, which takes roughly 30–60 seconds, sometimes longer while the JVM starts. The first **Try the live demo** click after a quiet spell can be slow. The instance has 512 MB of RAM, and `JAVA_OPTS` in `render.yaml` is sized for that. The heap is a percentage of container memory, so it grows with a bigger plan. On a bigger plan, you can also drop `-XX:TieredStopAtLevel=1`. While the instance sleeps, automatic GitHub sync doesn't run either; it catches up on the first check after the instance wakes.
 
 Finally, put the Vercel URL in [Live demo](#live-demo) above.
 

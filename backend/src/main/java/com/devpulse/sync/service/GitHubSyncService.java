@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 import com.devpulse.common.exception.ConflictException;
 import com.devpulse.common.security.UserPrincipal;
@@ -42,7 +43,13 @@ public class GitHubSyncService {
 
     @Transactional
     public SyncResponse sync(UserPrincipal principal) {
-        GitHubAccount account = accountRepository.findByUserId(principal.id())
+        return syncUser(principal.id());
+    }
+
+    /** Syncs one user's GitHub account in its own transaction; used by the button and by {@link GitHubAutoSync}. */
+    @Transactional
+    public SyncResponse syncUser(UUID userId) {
+        GitHubAccount account = accountRepository.findByUserId(userId)
                 .orElseThrow(() -> new ConflictException("Connect your GitHub account first."));
 
         Instant syncStartedAt = Instant.now();

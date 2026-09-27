@@ -64,3 +64,7 @@ services:
       # Optional: enables AI insights for real accounts. Leave blank to keep insights off.
       - key: GEMINI_API_KEY
         sync: false
+      - key: ADMIN_EMAILS
+        sync: false
+      - key: AUTO_SYNC_ENABLED
+        value: "true"

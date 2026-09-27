@@ -38,6 +38,18 @@ public interface GitHubAccountRepository extends JpaRepository<GitHubAccount, UU
             """)
     Optional<Instant> findLatestDemoConnectedAt();
 
+    /**
+     * Users whose GitHub data is due for an automatic sync: real (never demo), active accounts that have never
+     * synced or last synced before {@code cutoff}, never-synced first and then oldest first.
+     */
+    @Query("""
+            select a.userId from GitHubAccount a
+            where (a.lastSyncedAt is null or a.lastSyncedAt < :cutoff)
+              and a.userId in (select u.id from DpUser u where u.demo = false and u.activeStatus = true)
+            order by case when a.lastSyncedAt is null then 0 else 1 end, a.lastSyncedAt
+            """)
+    List<UUID> findUserIdsDueForSync(@Param("cutoff") Instant cutoff);
+
     interface AccountSummary {
         UUID getId();
 

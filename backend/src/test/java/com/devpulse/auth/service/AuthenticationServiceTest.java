@@ -1,5 +1,6 @@
 package com.devpulse.auth.service;
 
+import java.util.List;
 import java.util.Optional;
 
 import com.devpulse.auth.api.LoginRequest;
@@ -7,7 +8,9 @@ import com.devpulse.auth.api.RegisterRequest;
 import com.devpulse.common.exception.ConflictException;
 import com.devpulse.common.exception.UnauthorizedException;
 import com.devpulse.common.security.JwtService;
+import com.devpulse.user.config.AdminProperties;
 import com.devpulse.user.domain.DpUser;
+import com.devpulse.user.domain.DpUserRole;
 import com.devpulse.user.persistence.DpUserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -46,6 +50,23 @@ class AuthenticationServiceTest {
         assertThat(userCaptor.getValue().getEmail()).isEqualTo("developer@example.com");
         assertThat(userCaptor.getValue().getPassword()).isEqualTo("hashed-password");
         assertThat(response.accessToken()).isEqualTo("token");
+    }
+
+    @Test
+    void registersAnEmailListedInAdminEmailsAsAdminAndEveryoneElseAsMember() {
+        AuthenticationService service = new AuthenticationService(dpUserRepository, passwordEncoder, jwtService, null,
+                new AdminProperties(List.of(" Owner@Example.com ", "")));
+        when(passwordEncoder.encode(any())).thenReturn("hashed-password");
+        when(dpUserRepository.save(any(DpUser.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(jwtService.createAccessToken(any(DpUser.class))).thenReturn("token");
+
+        service.register(new RegisterRequest("Owner", "owner@example.com", "safe-password-123"));
+        service.register(new RegisterRequest("Developer", "developer@example.com", "safe-password-123"));
+
+        ArgumentCaptor<DpUser> userCaptor = ArgumentCaptor.forClass(DpUser.class);
+        verify(dpUserRepository, times(2)).save(userCaptor.capture());
+        assertThat(userCaptor.getAllValues()).extracting(DpUser::getRole)
+                .containsExactly(DpUserRole.ADMIN, DpUserRole.MEMBER);
     }
 
     @Test

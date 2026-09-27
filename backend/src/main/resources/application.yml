@@ -55,3 +55,12 @@ devpulse:
       model: ${GEMINI_MODEL:gemini-3.6-flash}
   demo:
     enabled: ${DEMO_ENABLED:false}
+  admin:
+    # Comma-separated; these accounts are always ADMIN (promoted at startup and on registration).
+    emails: ${ADMIN_EMAILS:}
+  sync:
+    auto:
+      enabled: ${AUTO_SYNC_ENABLED:true}
+      max-age: ${AUTO_SYNC_MAX_AGE:PT6H}
+      check-interval: ${AUTO_SYNC_CHECK_INTERVAL:PT15M}
+      batch-size: 25

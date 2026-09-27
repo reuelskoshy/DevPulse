@@ -1,5 +1,6 @@
 package com.devpulse.auth.service;
 
+import java.util.List;
 import java.util.Locale;
 
 import com.devpulse.auth.api.AuthResponse;
@@ -12,6 +13,7 @@ import com.devpulse.common.exception.UnauthorizedException;
 import com.devpulse.common.security.JwtService;
 import com.devpulse.demo.DemoService;
 import com.devpulse.demo.DemoTeam;
+import com.devpulse.user.config.AdminProperties;
 import com.devpulse.user.domain.DpUser;
 import com.devpulse.user.domain.DpUserRole;
 import com.devpulse.user.persistence.DpUserRepository;
@@ -29,14 +31,22 @@ public class AuthenticationService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final DemoService demoService;
+    private final AdminProperties adminProperties;
 
     @Autowired
     public AuthenticationService(DpUserRepository dpUserRepository, PasswordEncoder passwordEncoder, JwtService jwtService,
-                                 DemoService demoService) {
+                                 DemoService demoService, AdminProperties adminProperties) {
         this.dpUserRepository = dpUserRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.demoService = demoService;
+        this.adminProperties = adminProperties;
+    }
+
+    /** No configured admins: every new account starts as a MEMBER. */
+    public AuthenticationService(DpUserRepository dpUserRepository, PasswordEncoder passwordEncoder, JwtService jwtService,
+                                 DemoService demoService) {
+        this(dpUserRepository, passwordEncoder, jwtService, demoService, new AdminProperties(List.of()));
     }
 
     /** Without a {@link DemoService} the live demo is simply unavailable. */
@@ -54,8 +64,10 @@ public class AuthenticationService {
             throw new ConflictException("An account with this email already exists.");
         }
 
+        // Emails listed in ADMIN_EMAILS start as ADMIN, so a fresh deployment can create its first admin.
+        DpUserRole role = adminProperties.isAdminEmail(email) ? DpUserRole.ADMIN : DpUserRole.MEMBER;
         DpUser user = dpUserRepository.save(new DpUser(
-                request.name(), email, passwordEncoder.encode(request.password()), DpUserRole.MEMBER));
+                request.name(), email, passwordEncoder.encode(request.password()), role));
         return responseFor(user);
     }
 
