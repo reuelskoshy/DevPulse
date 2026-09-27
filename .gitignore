@@ -22,3 +22,8 @@ frontend/.env
 /nul
 /START-HERE.txt
 /start-devpulse.bat
+
+# Locally installed AI agent skills (npx skills add)
+/.agents/
+/skills-lock.json
+/DESIGN.md
