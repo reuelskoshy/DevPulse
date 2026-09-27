@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { IslandButton } from './IslandButton'
+import { BrandMark } from './BrandMark'
 
 interface NavLink {
   label: string
@@ -15,20 +16,6 @@ interface GlassNavProps {
 }
 
 const EASE_FLUID = [0.32, 0.72, 0, 1] as const
-
-function BrandMark() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-      <path
-        d="M2 12H7L9.5 5L14.5 19L17 12H22"
-        stroke="var(--accent)"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
 
 /**
  * The "Fluid Island" nav (Section 5A): a floating glass pill detached from

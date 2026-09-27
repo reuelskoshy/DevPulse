@@ -12,6 +12,12 @@ export const authApi = {
     return response.data
   },
 
+  /** Signs in as the live-demo manager. 404 (with a message) when the server has the demo disabled. */
+  demo: async (): Promise<AuthResponse> => {
+    const response = await apiClient.post<AuthResponse>('/auth/demo')
+    return response.data
+  },
+
   getCurrentUser: async (): Promise<User> => {
     const response = await apiClient.get<User>('/users/me')
     return response.data

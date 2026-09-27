@@ -1,10 +1,12 @@
 import { useMemo } from 'react'
 import type { ReactNode } from 'react'
-import { GitBranch, Pulse, ShieldCheck, Sparkle, UsersThree } from '@phosphor-icons/react'
+import { CircleNotch, GitBranch, Play, Pulse, ShieldCheck, Sparkle, UsersThree } from '@phosphor-icons/react'
 import { GlassNav } from '../components/GlassNav'
 import { DoubleBezel } from '../components/DoubleBezel'
 import { IslandButton } from '../components/IslandButton'
+import { Notice } from '../components/Notice'
 import { Reveal } from '../components/Reveal'
+import { useLiveDemo } from '../hooks/useLiveDemo'
 import '../styles/theme.css'
 
 const HEAT_WEIGHTS = [
@@ -69,6 +71,14 @@ function MeshBackdrop() {
   )
 }
 
+function DemoIcon({ pending }: { pending: boolean }) {
+  return pending ? (
+    <CircleNotch weight="light" className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+  ) : (
+    <Play weight="light" className="h-4 w-4" />
+  )
+}
+
 function Eyebrow({ children }: { children: ReactNode }) {
   return (
     <span
@@ -85,6 +95,11 @@ export default function Landing() {
     () => HEAT_WEIGHTS.map((weight) => HEAT_SHADES[weight] ?? HEAT_SHADES[0]),
     [],
   )
+
+  // Separate state per entry point so each shows its own pending label and error.
+  const heroDemo = useLiveDemo()
+  const ctaDemo = useLiveDemo()
+  const demoBusy = heroDemo.pending || ctaDemo.pending
 
   return (
     <div className="dp-theme min-h-[100dvh]">
@@ -120,17 +135,32 @@ export default function Landing() {
 
           <Reveal delay={0.15}>
             <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <IslandButton to="/register">Connect GitHub</IslandButton>
-              <IslandButton href="#sample" variant="ghost" icon={null}>
-                See a sample insight
+              <IslandButton
+                disabled={demoBusy}
+                onClick={() => void heroDemo.launch()}
+                icon={<DemoIcon pending={heroDemo.pending} />}
+              >
+                {heroDemo.pending ? 'Opening demo…' : 'Try the live demo'}
+              </IslandButton>
+              <IslandButton to="/register" variant="ghost">
+                Connect your GitHub
               </IslandButton>
             </div>
+            {heroDemo.error && (
+              <Notice
+                tone="error"
+                message={heroDemo.error}
+                onDismiss={heroDemo.clearError}
+                className="mx-auto mt-5 max-w-md text-left"
+              />
+            )}
           </Reveal>
 
           <Reveal delay={0.2}>
             <p className="mt-5 text-xs" style={{ color: 'var(--text-dim)' }}>
-              Requests <code className="font-mono">read:user</code> +{' '}
-              <code className="font-mono">repo</code> scopes only. Access tokens are encrypted at rest.
+              The demo is a read-only sample team &mdash; no sign-up or GitHub needed. Your own account
+              requests <code className="font-mono">read:user</code> + <code className="font-mono">repo</code>{' '}
+              scopes only.
             </p>
           </Reveal>
         </div>
@@ -412,19 +442,36 @@ export default function Landing() {
         {/* ---------- final cta ---------- */}
         <section id="cta" className="border-t py-24 sm:py-32" style={{ borderColor: 'var(--hairline-soft)' }}>
           <Reveal>
-            <DoubleBezel innerClassName="flex flex-col items-start justify-between gap-6 p-8 sm:flex-row sm:items-center sm:p-10">
+            <DoubleBezel innerClassName="flex flex-col items-start justify-between gap-8 p-8 lg:flex-row lg:items-center sm:p-10">
               <div>
                 <h2 className="text-2xl font-bold tracking-tight sm:text-3xl" style={{ color: 'var(--text)' }}>
-                  Sync your first repo in about two minutes.
+                  See it on a sample team, then bring your own.
                 </h2>
                 <p className="mt-3 max-w-md" style={{ color: 'var(--text-muted)' }}>
-                  Register, connect GitHub, and run your first sync. Your first insight is one
-                  click after that.
+                  The live demo opens a read-only team with generated activity. When you&rsquo;re
+                  ready, register and sync your first repo in about two minutes.
                 </p>
+                {ctaDemo.error && (
+                  <Notice
+                    tone="error"
+                    message={ctaDemo.error}
+                    onDismiss={ctaDemo.clearError}
+                    className="mt-5 max-w-md"
+                  />
+                )}
               </div>
-              <IslandButton to="/register" className="shrink-0">
-                Connect GitHub
-              </IslandButton>
+              <div className="flex shrink-0 flex-col gap-3 sm:flex-row">
+                <IslandButton
+                  disabled={demoBusy}
+                  onClick={() => void ctaDemo.launch()}
+                  icon={<DemoIcon pending={ctaDemo.pending} />}
+                >
+                  {ctaDemo.pending ? 'Opening demo…' : 'Try the live demo'}
+                </IslandButton>
+                <IslandButton to="/register" variant="ghost">
+                  Connect GitHub
+                </IslandButton>
+              </div>
             </DoubleBezel>
           </Reveal>
         </section>

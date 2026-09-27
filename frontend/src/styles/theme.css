@@ -12,7 +12,7 @@
   --hairline-soft: rgba(255, 255, 255, 0.06);
   --text: #f5f5f4;
   --text-muted: #9a9aa2;
-  --text-dim: #6b6b74;
+  --text-dim: #83838c; /* 4.5:1+ on every surface, so it is safe for small text */
   --accent: #34d399;
   --accent-soft: rgba(52, 211, 153, 0.16);
   --accent-2: #8b5cf6;
@@ -21,10 +21,23 @@
   --danger-soft: rgba(248, 113, 113, 0.14);
   --radius-outer: 2rem;
   --radius-inner: calc(2rem - 0.375rem);
+
+  /*
+    Chart tokens (dataviz skill). --chart-1 is the emerald accent snapped into the
+    dark categorical lightness band (OKLCH L 0.48–0.67): validate_palette.js passes
+    every check against --surface (#0c0c0e), contrast 6.4:1. --accent itself
+    (L 0.77) stays for text, icons and chrome.
+  */
+  --chart-1: #16a877;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-axis: rgba(255, 255, 255, 0.12);
+  --chart-cursor: rgba(255, 255, 255, 0.22);
+  --chart-muted: #4a4a52;
 }
 
 .dp-theme {
   background: var(--bg);
   color: var(--text);
-  min-height: 100vh;
+  /* dvh, never vh: this rule is unlayered, so it would beat min-h-[100dvh] utilities. */
+  min-height: 100dvh;
 }

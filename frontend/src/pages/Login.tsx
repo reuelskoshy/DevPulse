@@ -2,16 +2,18 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import axios from 'axios'
 import { Link, useNavigate } from 'react-router-dom'
-import { WarningCircle } from '@phosphor-icons/react'
+import { CircleNotch, Play, WarningCircle } from '@phosphor-icons/react'
 import { useAuth } from '../context/useAuth'
 import { DoubleBezel } from '../components/DoubleBezel'
 import { IslandButton } from '../components/IslandButton'
 import { Reveal } from '../components/Reveal'
+import { useLiveDemo } from '../hooks/useLiveDemo'
 import '../styles/theme.css'
 
 export default function Login() {
   const navigate = useNavigate()
   const { login } = useAuth()
+  const demo = useLiveDemo()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -116,10 +118,49 @@ export default function Login() {
                   </div>
                 </div>
 
-                <IslandButton type="submit" disabled={loading} className="mt-2 w-full justify-center">
+                <IslandButton type="submit" disabled={loading || demo.pending} className="mt-2 w-full justify-center">
                   {loading ? 'Signing in…' : 'Sign in'}
                 </IslandButton>
               </form>
+
+              <div
+                aria-hidden="true"
+                className="mt-6 flex items-center gap-3 text-[10px] font-medium uppercase tracking-[0.2em] text-[var(--text-dim)]"
+              >
+                <span className="h-px flex-1 bg-linear-to-r from-transparent to-white/10" />
+                or
+                <span className="h-px flex-1 bg-linear-to-l from-transparent to-white/10" />
+              </div>
+
+              <div className="mt-6 flex flex-col gap-2">
+                <IslandButton
+                  variant="ghost"
+                  disabled={demo.pending || loading}
+                  onClick={() => void demo.launch()}
+                  className="w-full justify-between"
+                  icon={
+                    demo.pending ? (
+                      <CircleNotch weight="light" className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+                    ) : (
+                      <Play weight="light" className="h-4 w-4" />
+                    )
+                  }
+                >
+                  {demo.pending ? 'Opening demo…' : 'Explore the live demo'}
+                </IslandButton>
+                <p className="text-center text-xs text-[var(--text-dim)]">
+                  A read-only sample team with generated data. No account needed.
+                </p>
+                {demo.error && (
+                  <div
+                    role="alert"
+                    className="mt-2 flex items-start gap-2 rounded-2xl bg-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)] ring-1 ring-[var(--danger)]/30"
+                  >
+                    <WarningCircle weight="light" className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{demo.error}</span>
+                  </div>
+                )}
+              </div>
 
               <div className="mt-6 text-center text-sm text-[var(--text-muted)]">
                 Don't have an account?{' '}
