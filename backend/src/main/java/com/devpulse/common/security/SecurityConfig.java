@@ -2,6 +2,7 @@ package com.devpulse.common.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.devpulse.demo.DemoProperties;
+import com.devpulse.digest.service.DigestProperties;
 import com.devpulse.sync.service.AutoSyncProperties;
 import com.devpulse.user.config.AdminProperties;
 import com.devpulse.demo.DemoReadOnlyFilter;
@@ -33,7 +34,7 @@ import java.util.Map;
 @EnableWebSecurity
 @EnableMethodSecurity
 @EnableConfigurationProperties({JwtProperties.class, GitHubProperties.class, GeminiProperties.class, DemoProperties.class,
-        AdminProperties.class, AutoSyncProperties.class})
+        AdminProperties.class, AutoSyncProperties.class, DigestProperties.class})
 public class SecurityConfig {
 
     @Bean

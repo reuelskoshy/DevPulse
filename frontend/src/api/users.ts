@@ -15,6 +15,21 @@ export interface TeamMember {
   accountCreatedDatetime: string | null
 }
 
+/** The caller's own editable profile (GET /team-members/{id}). */
+export interface Profile {
+  id: string
+  name: string
+  email: string
+  phoneNumber: string | null
+  location: string | null
+}
+
+export interface UpdateProfilePayload {
+  name: string
+  phoneNumber: string
+  location: string
+}
+
 export interface UpdateRolePayload {
   role: UserRole
   parentId: string | null
@@ -28,6 +43,14 @@ export interface UpdateStatusPayload {
 export const usersApi = {
   list: async (): Promise<TeamMember[]> => {
     const response = await apiClient.get<TeamMember[]>('/team-members')
+    return response.data
+  },
+  profile: async (id: string): Promise<Profile> => {
+    const response = await apiClient.get<Profile>(`/team-members/${id}`)
+    return response.data
+  },
+  updateProfile: async (id: string, payload: UpdateProfilePayload): Promise<Profile> => {
+    const response = await apiClient.put<Profile>(`/team-members/${id}`, payload)
     return response.data
   },
   updateRole: async (id: string, payload: UpdateRolePayload): Promise<TeamMember> => {

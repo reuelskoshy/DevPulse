@@ -13,6 +13,7 @@ import './styles/theme.css'
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Team = lazy(() => import('./pages/Team'))
 const People = lazy(() => import('./pages/People'))
+const Settings = lazy(() => import('./pages/Settings'))
 
 /** Full-viewport session check: the pulse mark breathing inside a glass bezel. */
 function FullScreenLoader() {
@@ -126,6 +127,19 @@ function App() {
             <RouteErrorBoundary reloadingFallback={<FullScreenLoader />}>
               <Suspense fallback={<FullScreenLoader />}>
                 <People />
+              </Suspense>
+            </RouteErrorBoundary>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/app/settings"
+        element={
+          <ProtectedRoute>
+            <RouteErrorBoundary reloadingFallback={<FullScreenLoader />}>
+              <Suspense fallback={<FullScreenLoader />}>
+                <Settings />
               </Suspense>
             </RouteErrorBoundary>
           </ProtectedRoute>

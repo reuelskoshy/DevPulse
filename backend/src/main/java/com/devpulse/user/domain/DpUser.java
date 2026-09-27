@@ -73,6 +73,12 @@ public class DpUser extends AssignedIdEntity {
     @Column(name = "demo", nullable = false)
     private Boolean demo;
 
+    @Column(name = "weekly_digest_enabled", nullable = false)
+    private Boolean weeklyDigestEnabled;
+
+    @Column(name = "weekly_digest_sent_at")
+    private Instant weeklyDigestSentAt;
+
     protected DpUser() {
     }
 
@@ -85,6 +91,7 @@ public class DpUser extends AssignedIdEntity {
         this.activeStatus = true;
         this.mfaActive = false;
         this.demo = false;
+        this.weeklyDigestEnabled = true;
     }
 
     @PrePersist
@@ -144,4 +151,9 @@ public class DpUser extends AssignedIdEntity {
 
     public boolean isDemo() { return Boolean.TRUE.equals(demo); }
     public void setDemo(boolean demo) { this.demo = demo; }
+
+    public boolean isWeeklyDigestEnabled() { return !Boolean.FALSE.equals(weeklyDigestEnabled); }
+    public void setWeeklyDigestEnabled(boolean weeklyDigestEnabled) { this.weeklyDigestEnabled = weeklyDigestEnabled; }
+
+    public Instant getWeeklyDigestSentAt() { return weeklyDigestSentAt; }
 }

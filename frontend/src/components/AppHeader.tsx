@@ -1,5 +1,5 @@
 import { Link, NavLink } from 'react-router-dom'
-import { Flask, IdentificationCard, SignOut, SquaresFour, UsersThree } from '@phosphor-icons/react'
+import { Flask, GearSix, IdentificationCard, SignOut, SquaresFour, UsersThree } from '@phosphor-icons/react'
 import type { Icon } from '@phosphor-icons/react'
 import { useAuth } from '../context/useAuth'
 import { canManagePeople, canViewTeam } from '../types/auth'
@@ -62,6 +62,18 @@ export function AppHeader() {
 
           <div className="flex min-w-0 shrink-0 items-center gap-3">
             <span className="hidden max-w-[14rem] truncate text-sm text-white/60 md:inline">{user?.email}</span>
+            <NavLink
+              to="/app/settings"
+              aria-label="Settings"
+              title="Settings"
+              className={({ isActive }) =>
+                `flex h-9 w-9 items-center justify-center rounded-full text-white ring-1 transition-all duration-700 ease-fluid hover:bg-white/10 active:scale-[0.98] ${
+                  isActive ? 'bg-white/10 ring-white/20' : 'bg-white/5 ring-white/10'
+                }`
+              }
+            >
+              <GearSix weight="light" className="h-4 w-4" />
+            </NavLink>
             <span className="hidden sm:block">
               <IslandButton variant="ghost" icon={<SignOut weight="light" className="h-4 w-4" />} onClick={logout}>
                 Sign out

@@ -100,6 +100,27 @@ The connection requests `read:user` and `repo` scopes. The access token is encry
 
 Who sees whom follows the team roles. `ADMIN` sees everyone. `MANAGER` sees themselves and their direct reports (users whose `parent` is them). `MEMBER` sees only themselves. Demo users and real users never see each other. No tokens, phone numbers, or addresses are returned.
 
+## Weekly digest
+
+Once a week, DevPulse emails each user a short digest covering the last 7 days, compared with the 7 days before:
+
+- **Personal:** your commits, active days, merged PRs, reviews given, and your most active repo.
+- **Team:** for anyone who can see more than themselves (managers and admins). Includes team commits, active members, merged and open PRs, median time to merge, and the top 3 contributors. Also lists connected teammates with no commits that week.
+
+Delivery works like this:
+
+- **When it goes out.** The API checks hourly for the latest round (`DIGEST_DAY_OF_WEEK` at `DIGEST_HOUR_UTC` UTC, default Monday 08:00). A round is still sent up to 2 days late, so a sleeping instance catches up when it wakes.
+- **Who gets it.** Only accounts that existed before the round and haven't received it yet.
+- **No duplicates.** Each send is claimed atomically first, so several instances never email the same person twice. A failed send releases the claim and is retried on the next check.
+- **What's skipped.** Weeks with nothing to report aren't emailed. Demo accounts never get email.
+
+Endpoints and settings:
+
+- `GET /api/v1/digest/weekly` returns this week's digest as JSON (the Settings page shows it as a preview).
+- `GET` / `PUT /api/v1/digest/preferences` with `{"weeklyDigestEnabled": false}` opts you out. The same switch is on the **Settings** page (`/app/settings`), where you can also edit your name, phone and location. The response's `emailDelivery` field says whether this server can send email at all.
+
+Email needs SMTP settings. Without `MAIL_HOST` and `MAIL_FROM`, nothing is sent and everything else keeps working; `/actuator/health` doesn't depend on the mail server.
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push and pull request to `master`:
@@ -118,6 +139,8 @@ The root `.env` file is exclusively for local Docker Compose infrastructure. Bac
 - `DEMO_ENABLED` — `true` seeds the read-only sample team and turns on **Try the live demo** (`POST /api/v1/auth/demo`). Defaults to `false`.
 - `ADMIN_EMAILS` — comma-separated emails that are always `ADMIN`. They're promoted at startup if the account exists, or at registration otherwise. This is how the first admin is created. Demo accounts are never promoted.
 - `AUTO_SYNC_ENABLED` / `AUTO_SYNC_MAX_AGE` / `AUTO_SYNC_CHECK_INTERVAL` — background GitHub sync (see [GitHub sync](#github-sync)). The durations are ISO-8601 values, for example `PT6H`.
+- `MAIL_HOST` / `MAIL_PORT` (default 587) / `MAIL_USERNAME` / `MAIL_PASSWORD` / `MAIL_FROM`: the SMTP server and sender address for the weekly digest. Any SMTP provider works (Resend, Brevo, SendGrid, Gmail with an app password). `MAIL_SMTP_AUTH` and `MAIL_STARTTLS` default to `true`.
+- `DIGEST_ENABLED` / `DIGEST_DAY_OF_WEEK` / `DIGEST_HOUR_UTC`: the weekly digest schedule (see [Weekly digest](#weekly-digest)). The defaults are `true`, `MONDAY` and `8`.
 - `PORT` — the port the API listens on, set by hosting platforms. Falls back to `BACKEND_PORT`, then 8080.
 
 ## Deploy
@@ -170,6 +193,7 @@ The repo includes `backend/Dockerfile`, `render.yaml`, and `frontend/vercel.json
    - `GITHUB_REDIRECT_URI`: the same callback URL.
    - `GITHUB_FRONTEND_SUCCESS_URL=https://<your-project>.vercel.app/app/dashboard`.
    - `GEMINI_API_KEY`, to turn on insights.
+   - `MAIL_HOST`, `MAIL_USERNAME`, `MAIL_PASSWORD` and `MAIL_FROM`, to send the weekly digest.
 
 7. **Cold starts.** Render's free instance sleeps after 15 minutes without traffic. The next request wakes it, which takes roughly 30–60 seconds, sometimes longer while the JVM starts. The first **Try the live demo** click after a quiet spell can be slow. The instance has 512 MB of RAM, and `JAVA_OPTS` in `render.yaml` is sized for that. The heap is a percentage of container memory, so it grows with a bigger plan. On a bigger plan, you can also drop `-XX:TieredStopAtLevel=1`. While the instance sleeps, automatic GitHub sync doesn't run either; it catches up on the first check after the instance wakes.
 

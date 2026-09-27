@@ -22,6 +22,20 @@ spring:
         order_updates: true
   flyway:
     enabled: true
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${MAIL_SMTP_AUTH:true}
+          starttls:
+            enable: ${MAIL_STARTTLS:true}
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
 
 server:
   port: ${PORT:${BACKEND_PORT:8080}}
@@ -35,6 +49,10 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    # An unreachable (or unset) SMTP server must never mark the API unhealthy; digests just retry later.
+    mail:
+      enabled: false
 
 devpulse:
   security:
@@ -64,3 +82,10 @@ devpulse:
       max-age: ${AUTO_SYNC_MAX_AGE:PT6H}
       check-interval: ${AUTO_SYNC_CHECK_INTERVAL:PT15M}
       batch-size: 25
+  digest:
+    enabled: ${DIGEST_ENABLED:true}
+    day-of-week: ${DIGEST_DAY_OF_WEEK:MONDAY}
+    hour-utc: ${DIGEST_HOUR_UTC:8}
+    check-interval: PT1H
+    from: ${MAIL_FROM:}
+    app-url: ${FRONTEND_ORIGIN:http://localhost:5173}

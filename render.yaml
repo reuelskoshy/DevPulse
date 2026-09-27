@@ -66,5 +66,15 @@ services:
         sync: false
       - key: ADMIN_EMAILS
         sync: false
+
+      # Optional: SMTP for the weekly digest email. Leave blank and no email is sent.
+      - key: MAIL_HOST
+        sync: false
+      - key: MAIL_USERNAME
+        sync: false
+      - key: MAIL_PASSWORD
+        sync: false
+      - key: MAIL_FROM
+        sync: false
       - key: AUTO_SYNC_ENABLED
         value: "true"
