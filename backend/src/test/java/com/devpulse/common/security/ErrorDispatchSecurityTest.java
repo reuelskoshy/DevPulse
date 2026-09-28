@@ -7,6 +7,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
 import com.devpulse.common.exception.ApiExceptionHandler;
+import com.devpulse.common.ratelimit.RateLimiter;
 import com.devpulse.integration.github.GitHubIntegrationController;
 import com.devpulse.integration.github.GitHubOAuthService;
 import com.devpulse.sync.service.GitHubSyncService;
@@ -144,7 +145,7 @@ class ErrorDispatchSecurityTest {
     @EnableAutoConfiguration(exclude = {
             DataSourceAutoConfiguration.class, HibernateJpaAutoConfiguration.class, FlywayAutoConfiguration.class})
     @Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtService.class, ApiExceptionHandler.class,
-            GitHubIntegrationController.class, TestEndpoints.class})
+            GitHubIntegrationController.class, RateLimiter.class, TestEndpoints.class})
     static class SecurityWebSlice {
     }
 

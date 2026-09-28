@@ -12,6 +12,7 @@ import com.devpulse.auth.api.AuthResponse;
 import com.devpulse.auth.api.UserResponse;
 import com.devpulse.auth.service.AuthenticationService;
 import com.devpulse.common.exception.ApiExceptionHandler;
+import com.devpulse.common.ratelimit.RateLimiter;
 import com.devpulse.common.security.JwtAuthenticationFilter;
 import com.devpulse.common.security.JwtService;
 import com.devpulse.common.security.SecurityConfig;
@@ -176,7 +177,7 @@ class DemoReadOnlyFilterSecurityTest {
     @Configuration(proxyBeanMethods = false)
     @EnableAutoConfiguration(exclude = {
             DataSourceAutoConfiguration.class, HibernateJpaAutoConfiguration.class, FlywayAutoConfiguration.class})
-    @Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtService.class, ApiExceptionHandler.class,
+    @Import({SecurityConfig.class, RateLimiter.class, JwtAuthenticationFilter.class, JwtService.class, ApiExceptionHandler.class,
             AuthController.class, TestEndpoints.class})
     static class SecurityWebSlice {
     }

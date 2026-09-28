@@ -6,6 +6,8 @@ import com.devpulse.digest.service.DigestProperties;
 import com.devpulse.sync.service.AutoSyncProperties;
 import com.devpulse.user.config.AdminProperties;
 import com.devpulse.demo.DemoReadOnlyFilter;
+import com.devpulse.common.ratelimit.RateLimitFilter;
+import com.devpulse.common.ratelimit.RateLimiter;
 import com.devpulse.insights.service.GeminiProperties;
 import com.devpulse.integration.github.GitHubProperties;
 import jakarta.servlet.DispatcherType;
@@ -38,8 +40,8 @@ import java.util.Map;
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtFilter, ObjectMapper objectMapper)
-            throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtFilter, RateLimiter rateLimiter,
+                                             ObjectMapper objectMapper) throws Exception {
         return http
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> { })
@@ -58,10 +60,12 @@ public class SecurityConfig {
                     writeJson(response, objectMapper, Map.of("status", 401, "message", "Authentication is required."));
                 }))
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
-                // Constructed here rather than declared as a bean: Spring Boot would also register a Filter bean in
+                // Constructed here rather than declared as beans: Spring Boot would also register a Filter bean in
                 // the servlet container's chain, and that copy could mark the request as filtered before the
-                // security context exists, silently disabling the read-only guard.
-                .addFilterAfter(new DemoReadOnlyFilter(objectMapper), JwtAuthenticationFilter.class)
+                // security context exists, silently disabling the guard. Rate limiting runs first, so a throttled
+                // demo request is rejected with 429 rather than the read-only guard's 403.
+                .addFilterAfter(new RateLimitFilter(rateLimiter, objectMapper), JwtAuthenticationFilter.class)
+                .addFilterAfter(new DemoReadOnlyFilter(objectMapper), RateLimitFilter.class)
                 .build();
     }
 

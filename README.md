@@ -54,6 +54,21 @@ docker exec -it devpulse-mysql-1 mysql -uroot -p db_DevPulse
 - `POST /api/v1/auth/demo` — signs in as the demo manager of the read-only sample team. Returns 404 unless `DEMO_ENABLED=true`. In a demo session, every request other than `GET`/`HEAD`/`OPTIONS` gets 403, except requests under `/api/v1/auth/`.
 - `GET /api/v1/users/me` — requires `Authorization: Bearer <access-token>`
 
+## Rate limiting
+
+A handful of sensitive or costly endpoints are throttled with an in-memory token bucket per caller, refilled steadily rather than reset all at once at a window boundary:
+
+| Endpoint | Limit | Keyed by |
+| --- | --- | --- |
+| `POST /api/v1/auth/login` | 10 / 5 min | IP address |
+| `POST /api/v1/auth/register` | 5 / hour | IP address |
+| `POST /api/v1/auth/demo` | 20 / min | IP address |
+| `POST /api/v1/integrations/github/sync` | 6 / min | user |
+| `POST /api/v1/insights/generate` | 5 / hour | user |
+| `POST /api/v1/digest/test` | 3 / hour | user |
+
+A throttled request gets `429 Too Many Requests` with a `Retry-After` header (seconds) and a friendly `message`. This runs on a single backend instance; a multi-instance deployment would need a shared store instead of the in-memory buckets.
+
 ## Team management endpoints
 
 Backed by the `dp_user` table. Roles are `ADMIN`, `MANAGER`, `MEMBER`; `MANAGER` sees/manages users whose `parent` points at them, `ADMIN` sees/manages everyone, `MEMBER` sees only themselves. New registrations default to `MEMBER` with no manager, except emails listed in `ADMIN_EMAILS`, which start as `ADMIN`.
