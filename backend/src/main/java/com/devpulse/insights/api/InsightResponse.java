@@ -5,7 +5,9 @@ import java.util.UUID;
 
 import com.devpulse.insights.domain.Insight;
 
-public record InsightResponse(UUID id, String summary, int commitCount, int repoCount, Instant generatedAt) {
+/** {@code details} is null for insights generated before details existed. */
+public record InsightResponse(UUID id, String summary, int commitCount, int repoCount, Instant generatedAt,
+                              InsightDetails details) {
 
     public static InsightResponse from(Insight insight) {
         return new InsightResponse(
@@ -13,6 +15,7 @@ public record InsightResponse(UUID id, String summary, int commitCount, int repo
                 insight.getSummary(),
                 insight.getCommitCount(),
                 insight.getRepoCount(),
-                insight.getGeneratedAt());
+                insight.getGeneratedAt(),
+                insight.getDetails());
     }
 }

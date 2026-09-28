@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.devpulse.common.persistence.AssignedIdEntity;
+import com.devpulse.insights.api.InsightDetails;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -36,16 +37,26 @@ public class Insight extends AssignedIdEntity {
     @Column(name = "generated_at", nullable = false)
     private Instant generatedAt;
 
+    /** Null for insights generated before details existed. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "details", columnDefinition = "JSON")
+    private InsightDetails details;
+
     protected Insight() {
     }
 
     public Insight(UUID userId, String summary, int commitCount, int repoCount) {
+        this(userId, summary, commitCount, repoCount, null);
+    }
+
+    public Insight(UUID userId, String summary, int commitCount, int repoCount, InsightDetails details) {
         this.id = UUID.randomUUID();
         this.userId = userId;
         this.summary = summary;
         this.commitCount = commitCount;
         this.repoCount = repoCount;
         this.generatedAt = Instant.now();
+        this.details = details;
     }
 
     public UUID getId() { return id; }
@@ -59,4 +70,6 @@ public class Insight extends AssignedIdEntity {
     public Integer getRepoCount() { return repoCount; }
 
     public Instant getGeneratedAt() { return generatedAt; }
+
+    public InsightDetails getDetails() { return details; }
 }

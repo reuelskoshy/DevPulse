@@ -169,7 +169,7 @@ public class DemoDataSeeder {
                 pullRequests.add(row);
             }
             insights.add(new Insight(user.getId(), plan.insight().summary(), plan.insight().commitCount(),
-                    plan.insight().repoCount()));
+                    plan.insight().repoCount(), plan.insight().details()));
         }
         for (int from = 0; from < commits.size(); from += COMMIT_BATCH_SIZE) {
             commitRepository.saveAll(commits.subList(from, Math.min(from + COMMIT_BATCH_SIZE, commits.size())));

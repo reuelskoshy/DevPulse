@@ -1,5 +1,7 @@
 package com.devpulse.demo;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -25,6 +27,13 @@ import com.devpulse.demo.DemoTeam.Persona;
 import com.devpulse.demo.DemoTeam.Repo;
 import com.devpulse.demo.DemoTeam.RepoWeight;
 import com.devpulse.demo.DemoTeam.Rhythm;
+import com.devpulse.insights.api.InsightDetails;
+import com.devpulse.insights.api.InsightDetails.Facts;
+import com.devpulse.insights.api.InsightDetails.Highlight;
+import com.devpulse.insights.api.InsightDetails.RepoShare;
+import com.devpulse.insights.service.InsightFacts;
+import com.devpulse.insights.service.InsightFacts.CommitPoint;
+import com.devpulse.insights.service.InsightFacts.PullRequestPoint;
 import com.devpulse.user.domain.DpUserRole;
 
 /**
@@ -79,7 +88,8 @@ final class DemoDataset {
 
     record PlannedCommit(Repo repo, String sha, String message, Instant authoredAt) { }
 
-    record InsightPlan(String summary, int commitCount, int repoCount) { }
+    /** {@code details} is null when there's nothing in the window to describe. */
+    record InsightPlan(String summary, int commitCount, int repoCount, InsightDetails details) { }
 
     /** {@code mergedAt} and {@code closedAt} are both null while open; a merged PR is also closed, as on GitHub. */
     record PlannedPullRequest(Repo repo, long id, int number, String title, Instant openedAt, Instant mergedAt,
@@ -141,9 +151,10 @@ final class DemoDataset {
             List<PlannedCommit> commits = commitsByEmail.get(persona.email());
             List<PlannedReview> reviews = new ArrayList<>(reviewsByEmail.get(persona.email()));
             reviews.sort(Comparator.comparing(PlannedReview::reviewedAt));
+            List<PlannedPullRequest> pullRequests = pullRequestsByEmail.get(persona.email());
             plans.add(new PersonaPlan(persona, syncedAtByEmail.get(persona.email()), commits,
-                    pullRequestsByEmail.get(persona.email()), List.copyOf(reviews),
-                    insightFor(persona, commits, today, busiestWindowCount)));
+                    pullRequests, List.copyOf(reviews),
+                    insightFor(persona, commits, pullRequests, reviews, today, busiestWindowCount)));
         }
         return new DemoDataset(today, List.copyOf(plans));
     }
@@ -366,8 +377,9 @@ final class DemoDataset {
         return commits.stream().filter(commit -> !day(commit).isBefore(windowStart)).toList();
     }
 
-    private static InsightPlan insightFor(Persona persona, List<PlannedCommit> commits, LocalDate today,
-                                          int busiestWindowCount) {
+    private static InsightPlan insightFor(Persona persona, List<PlannedCommit> commits,
+                                          List<PlannedPullRequest> pullRequests, List<PlannedReview> reviews,
+                                          LocalDate today, int busiestWindowCount) {
         List<PlannedCommit> recent = inWindow(commits, today.minusDays(INSIGHT_WINDOW_DAYS - 1L));
         int commitCount = recent.size();
         Map<String, Long> byRepo = recent.stream()
@@ -376,7 +388,7 @@ final class DemoDataset {
         String first = persona.firstName();
 
         if (commitCount == 0) {
-            return new InsightPlan(first + " has no commits in the last 14 days.", 0, 0);
+            return new InsightPlan(first + " has no commits in the last 14 days.", 0, 0, null);
         }
 
         Map.Entry<String, Long> top = byRepo.entrySet().stream()
@@ -402,7 +414,95 @@ final class DemoDataset {
                     + "Most of it went into " + topPhrase + ", with " + themes + " as the main themes.";
             case FADING -> fadingSummary(first, commits, recent, reposPhrase, today);
         };
-        return new InsightPlan(summary, commitCount, repoCount);
+        InsightDetails details = detailsFor(persona, recent, pullRequests, reviews, today, themes,
+                commitCount == busiestWindowCount);
+        return new InsightPlan(summary, commitCount, repoCount, details);
+    }
+
+    /**
+     * The structured part of a demo insight, measured with the same {@link InsightFacts} as a real one; the
+     * wording is templated from those numbers, so it never claims anything the seeded data doesn't show.
+     */
+    private static InsightDetails detailsFor(Persona persona, List<PlannedCommit> recent,
+                                             List<PlannedPullRequest> pullRequests, List<PlannedReview> reviews,
+                                             LocalDate today, String themes, boolean busiest) {
+        Instant from = today.minusDays(INSIGHT_WINDOW_DAYS - 1L).atStartOfDay(ZoneOffset.UTC).toInstant();
+        List<PullRequestPoint> points = new ArrayList<>();
+        pullRequests.forEach(pr -> points.add(
+                new PullRequestPoint(true, pr.openedAt(), pr.mergedAt(), pr.closedAt(), null)));
+        reviews.forEach(review -> points.add(new PullRequestPoint(false, review.pullRequest().openedAt(),
+                review.pullRequest().mergedAt(), review.pullRequest().closedAt(), review.reviewedAt())));
+        Facts facts = InsightFacts.compute(
+                recent.stream().map(commit -> new CommitPoint(commit.repo().fullName(), commit.authoredAt())).toList(),
+                points, from, INSIGHT_WINDOW_DAYS);
+        String first = persona.firstName();
+        String lastDay = SUMMARY_DATE.format(day(recent.get(recent.size() - 1)));
+
+        String headline = switch (persona.rhythm().pace()) {
+            case HIGH -> busiest ? first + " led the team's output, mostly on " + themes
+                    : first + " had a busy fortnight on " + themes;
+            case STEADY -> first + " kept a steady pace on " + themes;
+            case MODERATE -> first + " balanced hands-on work on " + themes + " with reviews";
+            case FADING -> first + " has gone quiet since " + lastDay;
+        };
+
+        List<Highlight> highlights = new ArrayList<>();
+        for (RepoShare share : facts.topRepos()) {
+            List<PlannedCommit> inRepo = recent.stream()
+                    .filter(commit -> commit.repo().fullName().equals(share.name())).toList();
+            StringBuilder detail = new StringBuilder(plural(share.commits(), "commit") + " in " + share.name()
+                    + ", mostly " + themes(inRepo) + ".");
+            pullRequests.stream()
+                    .filter(pr -> pr.repo().fullName().equals(share.name()) && pr.mergedAt() != null
+                            && !pr.mergedAt().isBefore(from))
+                    .max(Comparator.comparing(PlannedPullRequest::mergedAt))
+                    .ifPresent(pr -> detail.append(" Merged #").append(pr.number()).append(" \u201c")
+                            .append(pr.title()).append("\u201d."));
+            highlights.add(new Highlight(share.name().substring(share.name().indexOf('/') + 1), detail.toString()));
+        }
+
+        List<String> patterns = List.of(
+                "Committed on " + facts.activeDays() + " of " + INSIGHT_WINDOW_DAYS + " days, with a longest run of "
+                        + plural(facts.longestStreak(), "day") + " in a row.",
+                facts.busiestWeekday() + " was the busiest day; " + (facts.weekendCommits() == 0
+                        ? "nothing landed on weekends."
+                        : plural(facts.weekendCommits(), "commit") + " landed on weekends."),
+                "Opened " + plural(facts.pullRequestsOpened(), "pull request") + " and merged "
+                        + facts.pullRequestsMerged()
+                        + (facts.medianHoursToMerge() == null ? ""
+                                : ", with a median of " + hours(facts.medianHoursToMerge()) + " from open to merge")
+                        + "; gave " + plural(facts.reviews(), "review") + " on teammates' work.");
+
+        List<String> suggestions = new ArrayList<>();
+        if (persona.rhythm().pace() == Pace.FADING) {
+            suggestions.add("Worth a check-in: activity dropped off after " + lastDay + ".");
+        }
+        if (facts.pullRequestsOpen() >= 2) {
+            suggestions.add("Nudge reviewers on the " + facts.pullRequestsOpen()
+                    + " open pull requests before starting something new.");
+        }
+        if (facts.medianHoursToMerge() != null && facts.medianHoursToMerge() > 48) {
+            suggestions.add("Merges take " + hours(facts.medianHoursToMerge())
+                    + " at the median; smaller pull requests usually get reviewed faster.");
+        }
+        if (facts.reviews() == 0) {
+            suggestions.add("Pick up a teammate's pull request for review; none were given in the last two weeks.");
+        }
+        if (facts.weekendCommits() * 5 > facts.commits()) {
+            suggestions.add("A fair share of work landed on weekends; worth checking the load is sustainable.");
+        }
+        if (suggestions.isEmpty()) {
+            suggestions.add("Nothing is waiting on review, so it's a good moment to pay down some tech debt in "
+                    + facts.topRepos().get(0).name() + ".");
+        }
+        return new InsightDetails(headline, highlights, patterns,
+                suggestions.subList(0, Math.min(3, suggestions.size())), facts);
+    }
+
+    private static String hours(double hours) {
+        // Matches the dashboard's formatHours, so the sentence and the fact chip show the same number.
+        return hours < 48 ? BigDecimal.valueOf(hours).stripTrailingZeros().toPlainString() + "h"
+                : BigDecimal.valueOf(hours / 24).setScale(1, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString() + "d";
     }
 
     private static String fadingSummary(String first, List<PlannedCommit> commits, List<PlannedCommit> recent,
@@ -455,6 +555,7 @@ final class DemoDataset {
         if (count == 1) {
             return "1 " + noun;
         }
-        return count + " " + (noun.endsWith("y") ? noun.substring(0, noun.length() - 1) + "ies" : noun + "s");
+        boolean consonantY = noun.endsWith("y") && "aeiou".indexOf(noun.charAt(noun.length() - 2)) < 0;
+        return count + " " + (consonantY ? noun.substring(0, noun.length() - 1) + "ies" : noun + "s");
     }
 }

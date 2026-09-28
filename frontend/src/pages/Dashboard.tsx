@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../context/useAuth'
@@ -6,7 +7,7 @@ import { apiErrorMessage } from '../api/client'
 import { githubApi } from '../api/github'
 import type { GitHubConnection } from '../api/github'
 import { insightsApi } from '../api/insights'
-import type { Insight } from '../api/insights'
+import type { Insight, InsightFacts } from '../api/insights'
 import { teamApi } from '../api/team'
 import type { TeamActivity, TeamMemberActivity, TeamRangeDays } from '../api/team'
 import { canViewTeam } from '../types/auth'
@@ -42,7 +43,9 @@ import {
   GitCommit,
   GitPullRequest,
   GithubLogo,
+  Lightbulb,
   LockSimple,
+  Pulse,
   Sparkle,
   SquaresFour,
   UsersThree,
@@ -265,7 +268,7 @@ function TopReposCard({ self, now }: { self: TeamMemberActivity; now: number }) 
   const lastCommit = formatRelativeTime(self.lastCommitAt, now)
 
   return (
-    <DoubleBezel size="md" className="h-full" innerClassName="flex h-full flex-col gap-5 p-6 sm:p-8">
+    <DoubleBezel size="md" innerClassName="flex flex-col gap-5 p-6 sm:p-8">
       <div className="flex items-center justify-between gap-3">
         <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--text-muted)]">Where you&rsquo;re shipping</span>
         <span
@@ -277,7 +280,7 @@ function TopReposCard({ self, now }: { self: TeamMemberActivity; now: number }) 
       </div>
 
       {self.topRepos.length > 0 ? (
-        <ul aria-label="Top repositories" className="flex flex-col gap-4">
+        <ul aria-label="Top repositories" className="grid grid-cols-1 gap-x-8 gap-y-4 md:grid-cols-3">
           {self.topRepos.map((repo) => (
             <li key={repo.fullName} className="min-w-0">
               <div className="flex items-baseline justify-between gap-3">
@@ -302,16 +305,53 @@ function TopReposCard({ self, now }: { self: TeamMemberActivity; now: number }) 
         <p className="text-sm text-[var(--text-muted)]">No commits in this range yet.</p>
       )}
 
-      <p className="mt-auto text-xs text-[var(--text-muted)]" title={formatInstant(self.lastCommitAt) || undefined}>
+      <p className="text-xs text-[var(--text-muted)]" title={formatInstant(self.lastCommitAt) || undefined}>
         {lastCommit ? `Last commit ${lastCommit}.` : 'No commits in this range.'}
       </p>
     </DoubleBezel>
   )
 }
 
-function InsightCard({ insight, connected }: { insight: Insight | null | undefined; connected: boolean }) {
+function factChips(facts: InsightFacts): string[] {
+  const chips = [
+    `${formatCount(facts.commits)} ${pluralize(facts.commits, 'commit')}`,
+    `${facts.activeDays} of ${facts.windowDays} days active`,
+  ]
+  if (facts.longestStreak > 1) chips.push(`${facts.longestStreak}-day streak`)
+  if (facts.busiestWeekday) chips.push(`Busiest on ${facts.busiestWeekday}s`)
+  if (facts.pullRequestsMerged > 0) {
+    chips.push(`${formatCount(facts.pullRequestsMerged)} ${pluralize(facts.pullRequestsMerged, 'PR')} merged`)
+  }
+  if (facts.medianHoursToMerge !== null) chips.push(`${formatHours(facts.medianHoursToMerge)} median to merge`)
+  if (facts.pullRequestsOpen > 0) chips.push(`${formatCount(facts.pullRequestsOpen)} open`)
+  chips.push(`${formatCount(facts.reviews)} ${pluralize(facts.reviews, 'review')} given`)
+  return chips
+}
+
+function InsightList({ label, icon, items }: { label: string; icon: ReactNode; items: string[] }) {
+  if (items.length === 0) return null
   return (
-    <DoubleBezel size="md" className="h-full" innerClassName="flex h-full flex-col gap-4 p-6 sm:p-8">
+    <div className="flex flex-col gap-3">
+      <span className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-[var(--text-muted)]">
+        {icon}
+        {label}
+      </span>
+      <ul className="flex flex-col gap-2.5">
+        {items.map((item) => (
+          <li key={item} className="flex gap-2.5 text-sm leading-relaxed text-white/70">
+            <span aria-hidden="true" className="mt-2 h-1 w-1 shrink-0 rounded-full" style={{ background: 'var(--accent-2)' }} />
+            <span className="min-w-0">{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function InsightCard({ insight, connected }: { insight: Insight | null | undefined; connected: boolean }) {
+  const details = insight?.details ?? null
+  return (
+    <DoubleBezel size="md" innerClassName="flex flex-col gap-4 p-6 sm:p-8">
       <div className="flex items-center justify-between gap-3">
         <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--text-muted)]">Latest AI insight</span>
         <span
@@ -321,7 +361,72 @@ function InsightCard({ insight, connected }: { insight: Insight | null | undefin
           <Sparkle weight="light" className="h-4 w-4" style={{ color: 'var(--accent-2)' }} />
         </span>
       </div>
-      {insight ? (
+      {insight && details ? (
+        <>
+          <div className="flex max-w-3xl flex-col gap-3">
+            {details.headline && (
+              <h3 className="text-xl font-semibold leading-snug tracking-tight text-white sm:text-2xl">
+                {details.headline}
+              </h3>
+            )}
+            <p className="text-sm leading-relaxed text-white/70 sm:text-[15px]">{insight.summary}</p>
+          </div>
+
+          <ul aria-label="Insight facts" className="flex flex-wrap gap-2">
+            {factChips(details.facts).map((chip) => (
+              <li
+                key={chip}
+                className="rounded-full px-3 py-1 text-xs tabular-nums text-white/75 ring-1 ring-white/10"
+                style={{ background: 'var(--accent-2-soft)' }}
+              >
+                {chip}
+              </li>
+            ))}
+          </ul>
+
+          <div className="mt-2 grid grid-cols-1 gap-8 md:grid-cols-5">
+            {details.highlights.length > 0 && (
+              <div className="flex flex-col gap-3 md:col-span-3">
+                <span className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-[var(--text-muted)]">
+                  <Sparkle weight="light" className="h-3.5 w-3.5" aria-hidden="true" />
+                  Highlights
+                </span>
+                <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {details.highlights.map((highlight) => (
+                    <li
+                      key={highlight.title}
+                      className="flex flex-col gap-1.5 rounded-2xl p-4 ring-1 ring-white/10"
+                      style={{ background: 'rgba(255,255,255,0.02)' }}
+                    >
+                      <span className="text-sm font-semibold text-white">{highlight.title}</span>
+                      <span className="text-sm leading-relaxed text-white/65">{highlight.detail}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className={`flex flex-col gap-6 ${details.highlights.length > 0 ? 'md:col-span-2' : 'md:col-span-5'}`}>
+              <InsightList
+                label="How you worked"
+                icon={<Pulse weight="light" className="h-3.5 w-3.5" aria-hidden="true" />}
+                items={details.patterns}
+              />
+              <InsightList
+                label="Try next"
+                icon={<Lightbulb weight="light" className="h-3.5 w-3.5" aria-hidden="true" />}
+                items={details.suggestions}
+              />
+            </div>
+          </div>
+
+          <p className="text-xs text-[var(--text-muted)]">
+            Generated {formatInstant(insight.generatedAt)} from the last {details.facts.windowDays} days:{' '}
+            {formatCount(insight.commitCount)} {pluralize(insight.commitCount, 'commit')} across{' '}
+            {formatCount(insight.repoCount)} {pluralize(insight.repoCount, 'repo')}, plus pull requests and reviews.
+            Days are counted in UTC.
+          </p>
+        </>
+      ) : insight ? (
         <>
           <p className="text-sm leading-relaxed text-white/70">{insight.summary}</p>
           <p className="mt-auto text-xs text-[var(--text-muted)]">
@@ -742,14 +847,12 @@ export default function Dashboard() {
                   <PullRequestCard self={self} days={activity.days} />
                 </Reveal>
               </div>
-              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-5">
-                <Reveal className="h-full md:col-span-3">
-                  <InsightCard insight={insight} connected={connected} />
-                </Reveal>
-                <Reveal delay={0.05} className="h-full md:col-span-2">
-                  <TopReposCard self={self} now={relativeNow} />
-                </Reveal>
-              </div>
+              <Reveal className="mt-4">
+                <InsightCard insight={insight} connected={connected} />
+              </Reveal>
+              <Reveal delay={0.05} className="mt-4">
+                <TopReposCard self={self} now={relativeNow} />
+              </Reveal>
               {showTeamTeaser && activity && (
                 <Reveal className="mt-4">
                   <TeamTeaser data={activity} />

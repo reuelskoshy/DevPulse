@@ -17,6 +17,7 @@ import com.devpulse.demo.DemoDataset.PlannedPullRequest;
 import com.devpulse.demo.DemoTeam.Pace;
 import com.devpulse.demo.DemoTeam.Persona;
 import com.devpulse.demo.DemoTeam.Repo;
+import com.devpulse.insights.api.InsightDetails;
 import com.devpulse.user.domain.DpUserRole;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -239,6 +240,13 @@ class DemoDatasetTest {
                     .contains(recent.size() + " commit")
                     .hasSizeLessThanOrEqualTo(2000)
                     .doesNotContain("null");
+            InsightDetails details = plan.insight().details();
+            assertThat(details.facts().commits()).isEqualTo(recent.size());
+            assertThat(details.headline()).startsWith(plan.persona().firstName() + " ").doesNotContain("null");
+            assertThat(details.highlights()).isNotEmpty().hasSizeLessThanOrEqualTo(3);
+            assertThat(details.patterns()).hasSize(3)
+                    .allSatisfy(p -> assertThat(p).doesNotContain("null").doesNotContain("daies"));
+            assertThat(details.suggestions()).isNotEmpty().hasSizeLessThanOrEqualTo(3);
         }
         assertThat(plan(dataset, Pace.HIGH).insight().summary()).contains("most active contributor");
         assertThat(plan(dataset, Pace.FADING).insight().summary())

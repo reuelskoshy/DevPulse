@@ -86,8 +86,15 @@ The connection requests `read:user` and `repo` scopes. The access token is encry
 
 ## AI insights
 
-- `POST /api/v1/insights/generate` — summarizes the last 14 days of synced commit activity into a short plain-language insight via the Gemini API. Requires `GEMINI_API_KEY` to be set; each call is a deliberate user action, not automatic.
+- `POST /api/v1/insights/generate` — reviews the last 14 days of synced activity (commits, your pull requests, and reviews you gave) via the Gemini API. Requires `GEMINI_API_KEY` to be set; each call is a deliberate user action, not automatic.
 - `GET /api/v1/insights/latest` — cheap read of the most recently generated insight (404 if none yet).
+
+An insight has a headline, an overview (`summary`), and a `details` object:
+
+- `facts` — measured by DevPulse, not the model: commits, active days, longest streak, busiest weekday, weekend commits, PRs opened / merged / still open, median hours to merge, reviews given, and top repositories. Days are counted in UTC.
+- `highlights` (up to 4), `patterns` and `suggestions` (up to 3 each) — written by Gemini as schema-constrained JSON from those facts, commit messages and PR titles. The prompt treats commit messages and PR titles as data, never as instructions. Each field is trimmed to a fixed length. If the model returns something that isn't JSON, its text becomes the summary and the facts are still kept.
+
+Insights generated before this change have `details: null` and show just the summary.
 
 ## Team activity
 
@@ -137,6 +144,7 @@ The root `.env` file is exclusively for local Docker Compose infrastructure. Bac
 
 - `TOKEN_ENCRYPTION_KEY` — base64, 32 bytes, encrypts the GitHub access token at rest. Changing it invalidates previously-connected accounts; reconnect GitHub afterward.
 - `GEMINI_API_KEY` / `GEMINI_MODEL` — used to generate AI insights (free tier via [aistudio.google.com](https://aistudio.google.com), no card required).
+- `GEMINI_FALLBACK_MODEL` — optional, default `gemini-3.5-flash-lite`. Busy or rate-limited requests (429/5xx) are retried twice on `GEMINI_MODEL`, then once on this model. Set it blank to turn the fallback off.
 - `DEMO_ENABLED` — `true` seeds the read-only sample team and turns on **Try the live demo** (`POST /api/v1/auth/demo`). Defaults to `false`.
 - `ADMIN_EMAILS` — comma-separated emails that are always `ADMIN`. They're promoted at startup if the account exists, or at registration otherwise. This is how the first admin is created. Demo accounts are never promoted.
 - `AUTO_SYNC_ENABLED` / `AUTO_SYNC_MAX_AGE` / `AUTO_SYNC_CHECK_INTERVAL` — background GitHub sync (see [GitHub sync](#github-sync)). The durations are ISO-8601 values, for example `PT6H`.
