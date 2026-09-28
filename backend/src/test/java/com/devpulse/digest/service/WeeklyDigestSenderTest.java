@@ -11,6 +11,8 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
 
+import com.devpulse.common.exception.ConflictException;
+import com.devpulse.common.exception.ForbiddenException;
 import com.devpulse.common.security.UserPrincipal;
 import com.devpulse.digest.api.WeeklyDigest;
 import com.devpulse.digest.api.WeeklyDigest.Personal;
@@ -30,6 +32,7 @@ import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -150,6 +153,41 @@ class WeeklyDigestSenderTest {
         assertThat(noFrom.canSend()).isFalse();
         assertThat(disabled.canSend()).isFalse();
         verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void aTestGoesOnlyToTheCallerEvenWhenEmptyAndDoesNotCountAsTheWeeksDigest() throws Exception {
+        UserPrincipal me = new UserPrincipal(user.getId(), "maya@example.com", "MANAGER", false);
+        when(digestService.build(me)).thenReturn(new WeeklyDigest(LocalDate.parse("2026-09-22"),
+                LocalDate.parse("2026-09-28"), "Maya", new Personal(true, 0, 0, 0, 0, 0, null), null));
+        WeeklyDigestSender sender = sender(properties(true, "digest@example.com"), mailSender, NOW);
+
+        sender.sendTest(me);
+
+        ArgumentCaptor<MimeMessage> sent = ArgumentCaptor.forClass(MimeMessage.class);
+        verify(mailSender).send(sent.capture());
+        assertThat(sent.getValue().getAllRecipients()).hasSize(1);
+        assertThat(sent.getValue().getAllRecipients()[0].toString()).isEqualTo("maya@example.com");
+        assertThat(sent.getValue().getSubject()).startsWith("[Test] ");
+        verifyNoInteractions(userRepository);
+        // A second click within the cooldown is refused.
+        assertThatThrownBy(() -> sender.sendTest(me)).isInstanceOf(ConflictException.class);
+    }
+
+    @Test
+    void aTestIsRefusedForTheDemoWithoutSmtpAndReleasesTheCooldownOnFailure() {
+        UserPrincipal me = new UserPrincipal(user.getId(), "maya@example.com", "MANAGER", false);
+        assertThatThrownBy(() -> sender(properties(true, "digest@example.com"), mailSender, NOW)
+                .sendTest(new UserPrincipal(user.getId(), "maya@example.com", "MANAGER", true)))
+                .isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> sender(properties(true, "digest@example.com"), null, NOW).sendTest(me))
+                .isInstanceOf(ConflictException.class);
+
+        when(digestService.build(me)).thenReturn(activeDigest());
+        doThrow(new MailSendException("SMTP down")).when(mailSender).send(any(MimeMessage.class));
+        WeeklyDigestSender sender = sender(properties(true, "digest@example.com"), mailSender, NOW);
+        assertThatThrownBy(() -> sender.sendTest(me)).hasMessageContaining("mail server");
+        assertThatThrownBy(() -> sender.sendTest(me)).hasMessageContaining("mail server");
     }
 
     private WeeklyDigestSender sender(DigestProperties properties, JavaMailSender mail, Instant now) {

@@ -15,7 +15,7 @@ import { Notice } from '../components/Notice'
 import type { NoticeState } from '../components/Notice'
 import { Reveal } from '../components/Reveal'
 import { formatCount, formatHours, formatInstant, formatUtcRange, pluralize } from '../lib/format'
-import { EnvelopeSimple, FloppyDisk, LockSimple, UserCircle } from '@phosphor-icons/react'
+import { EnvelopeSimple, FloppyDisk, LockSimple, PaperPlaneTilt, UserCircle } from '@phosphor-icons/react'
 import '../styles/theme.css'
 
 const INPUT_CLASS =
@@ -160,6 +160,11 @@ function DigestToggle({ preferences, readOnly, onSaved }: DigestToggleProps) {
     onError: (failure) => onSaved({ tone: 'error', message: apiErrorMessage(failure, "Couldn't update the digest.") }),
   })
   const enabled = toggle.isPending ? toggle.variables : preferences.weeklyDigestEnabled
+  const test = useMutation({
+    mutationFn: digestApi.sendTest,
+    onSuccess: () => onSaved({ tone: 'success', message: 'Test digest sent. Check your inbox in a minute.' }),
+    onError: (failure) => onSaved({ tone: 'error', message: apiErrorMessage(failure, "Couldn't send a test digest.") }),
+  })
 
   return (
     <div className="flex h-full flex-col gap-5">
@@ -205,11 +210,19 @@ function DigestToggle({ preferences, readOnly, onSaved }: DigestToggleProps) {
         </li>
         <li>Weeks with nothing to report are skipped.</li>
       </ul>
-      {readOnly && (
-        <div className="mt-auto">
-          <ReadOnlyHint />
-        </div>
-      )}
+      <div className="mt-auto flex flex-wrap items-center gap-3 pt-2">
+        {preferences.emailDelivery && (
+          <IslandButton
+            variant="ghost"
+            disabled={readOnly || test.isPending}
+            onClick={() => test.mutate()}
+            icon={<PaperPlaneTilt weight="light" className="h-4 w-4" />}
+          >
+            {test.isPending ? 'Sending…' : 'Send me a test'}
+          </IslandButton>
+        )}
+        {readOnly && <ReadOnlyHint />}
+      </div>
     </div>
   )
 }

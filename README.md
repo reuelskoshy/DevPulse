@@ -118,6 +118,7 @@ Endpoints and settings:
 
 - `GET /api/v1/digest/weekly` returns this week's digest as JSON (the Settings page shows it as a preview).
 - `GET` / `PUT /api/v1/digest/preferences` with `{"weeklyDigestEnabled": false}` opts you out. The same switch is on the **Settings** page (`/app/settings`), where you can also edit your name, phone and location. The response's `emailDelivery` field says whether this server can send email at all.
+- `POST /api/v1/digest/test` emails this week's digest to you only, right away, even if it's empty. This is the **Send me a test** button on Settings. It doesn't count as that week's digest, and it's limited to once a minute. Demo sessions can't use it.
 
 Email needs SMTP settings. Without `MAIL_HOST` and `MAIL_FROM`, nothing is sent and everything else keeps working; `/actuator/health` doesn't depend on the mail server.
 

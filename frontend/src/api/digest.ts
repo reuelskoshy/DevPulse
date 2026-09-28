@@ -55,4 +55,8 @@ export const digestApi = {
     const response = await apiClient.put<DigestPreferences>('/digest/preferences', { weeklyDigestEnabled })
     return response.data
   },
+  /** Emails this week's digest to the signed-in user only. */
+  sendTest: async (): Promise<void> => {
+    await apiClient.post('/digest/test')
+  },
 }
