@@ -256,8 +256,8 @@ public class DemoDataSeeder {
 
         String topName = topContributors.isEmpty() || topContributors.get(0).commits() == 0
                 ? null : topContributors.get(0).name();
-        String summary = DemoDataset.plural(activeMembers, "person") + " of " + teamFacts.memberCount()
-                + " on the team committed over the last 14 days: " + DemoDataset.plural(teamFacts.commits(), "commit")
+        String summary = activeMembers + " of " + DemoDataset.plural(teamFacts.memberCount(), "teammate")
+                + " committed over the last 14 days: " + DemoDataset.plural(teamFacts.commits(), "commit")
                 + " across " + DemoDataset.plural(teamFacts.reposTouched(), "repository") + "."
                 + (topName == null ? "" : " " + topName + " led the way with "
                         + DemoDataset.plural(topContributors.get(0).commits(), "commit") + ".");
@@ -270,8 +270,8 @@ public class DemoDataSeeder {
                 .toList();
 
         List<String> patterns = new ArrayList<>();
-        patterns.add(DemoDataset.plural(activeMembers, "person") + " of " + teamFacts.memberCount()
-                + " on the team committed in the last 14 days.");
+        patterns.add(activeMembers + " of " + DemoDataset.plural(teamFacts.memberCount(), "teammate")
+                + " committed in the last 14 days.");
         patterns.add("Opened " + DemoDataset.plural(teamFacts.pullRequestsOpened(), "pull request") + " and merged "
                 + teamFacts.pullRequestsMerged()
                 + (teamFacts.medianHoursToMerge() == null ? ""
@@ -284,8 +284,8 @@ public class DemoDataSeeder {
                     + " pull requests still open across the team.");
         }
         if (teamFacts.activeMembers() < teamFacts.memberCount()) {
-            suggestions.add("Check in with the " + DemoDataset.plural(teamFacts.memberCount() - teamFacts.activeMembers(), "person")
-                    + " on the team with no commits in the last 14 days.");
+            suggestions.add("Check in with the " + DemoDataset.plural(teamFacts.memberCount() - teamFacts.activeMembers(), "teammate")
+                    + " with no commits in the last 14 days.");
         }
         if (suggestions.isEmpty()) {
             suggestions.add("Everyone on the team has been active; a good moment to plan the next milestone.");
