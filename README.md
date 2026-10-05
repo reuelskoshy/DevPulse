@@ -2,6 +2,8 @@
 
 DevPulse is an AI-powered developer intelligence platform for engineering teams.
 
+For how the system fits together (components, request flow and design decisions), see [ARCHITECTURE.md](ARCHITECTURE.md).
+
 [![DevPulse product walkthrough](docs/demo.gif)](docs/demo.mp4)
 
 A 75-second walkthrough of the live demo: team view, personal dashboard, AI insight and weekly digest. The preview above plays at 2x speed. Click it for the full-quality video ([docs/demo.mp4](docs/demo.mp4)).
