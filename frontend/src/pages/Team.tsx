@@ -1,15 +1,19 @@
 import { useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowClockwise,
   GitBranch,
   GitCommit,
   GitPullRequest,
   GithubLogo,
+  Lightbulb,
   LinkBreak,
+  LockSimple,
   PlugsConnected,
+  Pulse,
+  Sparkle,
   Timer,
   UserPlus,
   UsersThree,
@@ -18,11 +22,14 @@ import { useAuth } from '../context/useAuth'
 import { apiErrorMessage } from '../api/client'
 import { teamApi } from '../api/team'
 import type { TeamActivity, TeamMemberActivity, TeamRangeDays } from '../api/team'
+import { teamInsightsApi } from '../api/insights'
+import type { TeamInsight, TeamInsightFacts } from '../api/insights'
 import { AppHeader } from '../components/AppHeader'
 import { Eyebrow, RangeControl, SkeletonBar, StatTile } from '../components/activity'
 import type { StatTileProps } from '../components/activity'
 import { DEFAULT_DAYS, parseDays } from '../lib/activity'
 import { DoubleBezel } from '../components/DoubleBezel'
+import { IslandButton } from '../components/IslandButton'
 import { Notice } from '../components/Notice'
 import { Reveal } from '../components/Reveal'
 import { Sparkline } from '../components/charts/Sparkline'
@@ -304,6 +311,206 @@ function MemberCard({ member, days, sparkMax, now }: MemberCardProps) {
   )
 }
 
+/* ------------------------------------------------------------------ team insight */
+
+function teamFactChips(facts: TeamInsightFacts): string[] {
+  const chips = [
+    `${formatCount(facts.commits)} ${pluralize(facts.commits, 'commit')}`,
+    `${formatCount(facts.activeMembers)} of ${formatCount(facts.memberCount)} active`,
+  ]
+  if (facts.reposTouched > 0) {
+    chips.push(`${formatCount(facts.reposTouched)} ${pluralize(facts.reposTouched, 'repo')} touched`)
+  }
+  if (facts.pullRequestsMerged > 0) {
+    chips.push(`${formatCount(facts.pullRequestsMerged)} ${pluralize(facts.pullRequestsMerged, 'PR')} merged`)
+  }
+  if (facts.medianHoursToMerge !== null) chips.push(`${formatHours(facts.medianHoursToMerge)} median to merge`)
+  if (facts.pullRequestsOpen > 0) chips.push(`${formatCount(facts.pullRequestsOpen)} open`)
+  chips.push(`${formatCount(facts.reviews)} ${pluralize(facts.reviews, 'review')} given`)
+  return chips
+}
+
+function TeamInsightList({ label, icon, items }: { label: string; icon: ReactNode; items: string[] }) {
+  if (items.length === 0) return null
+  return (
+    <div className="flex flex-col gap-3">
+      <span className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-[var(--text-muted)]">
+        {icon}
+        {label}
+      </span>
+      <ul className="flex flex-col gap-2.5">
+        {items.map((item) => (
+          <li key={item} className="flex gap-2.5 text-sm leading-relaxed text-white/70">
+            <span aria-hidden="true" className="mt-2 h-1 w-1 shrink-0 rounded-full" style={{ background: 'var(--accent-2)' }} />
+            <span className="min-w-0">{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function TeamInsightCard({ insight }: { insight: TeamInsight | null | undefined }) {
+  const details = insight?.details ?? null
+  return (
+    <DoubleBezel size="md" innerClassName="flex flex-col gap-4 p-6 sm:p-8">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--text-muted)]">Team AI insight</span>
+        <span
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+          style={{ background: 'var(--accent-2-soft)' }}
+        >
+          <Sparkle weight="light" className="h-4 w-4" style={{ color: 'var(--accent-2)' }} />
+        </span>
+      </div>
+      {insight && details ? (
+        <>
+          <div className="flex max-w-3xl flex-col gap-3">
+            {details.headline && (
+              <h3 className="text-xl font-semibold leading-snug tracking-tight text-white sm:text-2xl">
+                {details.headline}
+              </h3>
+            )}
+            <p className="text-sm leading-relaxed text-white/70 sm:text-[15px]">{insight.summary}</p>
+          </div>
+
+          <ul aria-label="Team insight facts" className="flex flex-wrap gap-2">
+            {teamFactChips(details.facts).map((chip) => (
+              <li
+                key={chip}
+                className="rounded-full px-3 py-1 text-xs tabular-nums text-white/75 ring-1 ring-white/10"
+                style={{ background: 'var(--accent-2-soft)' }}
+              >
+                {chip}
+              </li>
+            ))}
+          </ul>
+
+          <div className="mt-2 grid grid-cols-1 gap-8 md:grid-cols-5">
+            {details.highlights.length > 0 && (
+              <div className="flex flex-col gap-3 md:col-span-3">
+                <span className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-[var(--text-muted)]">
+                  <Sparkle weight="light" className="h-3.5 w-3.5" aria-hidden="true" />
+                  Highlights
+                </span>
+                <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {details.highlights.map((highlight) => (
+                    <li
+                      key={highlight.title}
+                      className="flex flex-col gap-1.5 rounded-2xl p-4 ring-1 ring-white/10"
+                      style={{ background: 'rgba(255,255,255,0.02)' }}
+                    >
+                      <span className="text-sm font-semibold text-white">{highlight.title}</span>
+                      <span className="text-sm leading-relaxed text-white/65">{highlight.detail}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className={`flex flex-col gap-6 ${details.highlights.length > 0 ? 'md:col-span-2' : 'md:col-span-5'}`}>
+              <TeamInsightList
+                label="How the team works"
+                icon={<Pulse weight="light" className="h-3.5 w-3.5" aria-hidden="true" />}
+                items={details.patterns}
+              />
+              <TeamInsightList
+                label="Try next"
+                icon={<Lightbulb weight="light" className="h-3.5 w-3.5" aria-hidden="true" />}
+                items={details.suggestions}
+              />
+            </div>
+          </div>
+
+          <p className="text-xs text-[var(--text-muted)]">
+            Generated {formatInstant(insight.generatedAt)} from the last {details.facts.windowDays} days:{' '}
+            {formatCount(insight.memberCount)} {pluralize(insight.memberCount, 'person', 'people')},{' '}
+            {formatCount(insight.commitCount)} {pluralize(insight.commitCount, 'commit')}. Days are counted in UTC.
+          </p>
+        </>
+      ) : insight ? (
+        <>
+          <p className="text-sm leading-relaxed text-white/70">{insight.summary}</p>
+          <p className="mt-auto text-xs text-[var(--text-muted)]">
+            Generated {formatInstant(insight.generatedAt)} from {formatCount(insight.memberCount)}{' '}
+            {pluralize(insight.memberCount, 'person', 'people')}.
+          </p>
+        </>
+      ) : (
+        <p className="text-sm text-[var(--text-muted)]">
+          No team insight yet. Generate one once your reports have some activity synced.
+        </p>
+      )}
+    </DoubleBezel>
+  )
+}
+
+function TeamInsightSection({ isDemo, showEmptyReports }: { isDemo: boolean; showEmptyReports: boolean }) {
+  const queryClient = useQueryClient()
+
+  const { data: insight } = useQuery({
+    queryKey: ['latest-team-insight'],
+    queryFn: teamInsightsApi.getLatest,
+  })
+
+  const generateMutation = useMutation({
+    mutationFn: teamInsightsApi.generate,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['latest-team-insight'] })
+    },
+  })
+
+  const generateButton = (
+    <IslandButton
+      variant="ghost"
+      type="button"
+      disabled={isDemo || showEmptyReports || generateMutation.isPending}
+      onClick={() => generateMutation.mutate()}
+      icon={<Sparkle weight="light" className="h-4 w-4" />}
+    >
+      {generateMutation.isPending ? 'Generating…' : 'Generate team insight'}
+    </IslandButton>
+  )
+
+  return (
+    <section className="pt-16 sm:pt-24">
+      <Reveal>
+        <Eyebrow tone="accent-2">AI insight</Eyebrow>
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
+          <h2 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">Team AI insight</h2>
+          {showEmptyReports ? (
+            <span title="It's just you for now — no direct reports to generate a team insight from.">
+              {generateButton}
+            </span>
+          ) : (
+            generateButton
+          )}
+        </div>
+        {isDemo && (
+          <span className="mt-3 inline-flex items-center gap-1.5 text-xs text-white/50">
+            <LockSimple weight="light" className="h-4 w-4" style={{ color: 'var(--accent-2)' }} />
+            Read-only in the demo.
+          </span>
+        )}
+      </Reveal>
+
+      {generateMutation.isError && (
+        <Reveal className="mt-4">
+          <Notice
+            tone="error"
+            message={apiErrorMessage(generateMutation.error, "Couldn't generate a team insight. Please try again.")}
+            onDismiss={() => generateMutation.reset()}
+            className="max-w-2xl"
+          />
+        </Reveal>
+      )}
+
+      <Reveal delay={0.05} className="mt-8">
+        <TeamInsightCard insight={insight} />
+      </Reveal>
+    </section>
+  )
+}
+
 function EmptyReports() {
   return (
     <DoubleBezel size="md" innerClassName="flex flex-col items-start gap-4 p-6 sm:flex-row sm:items-center sm:p-8">
@@ -414,6 +621,8 @@ function TeamSkeleton() {
 
 export default function Team() {
   const { user } = useAuth()
+  // Demo sessions are read-only: the backend 403s every write, so writes are disabled up front.
+  const isDemo = user?.demo === true
   const [searchParams, setSearchParams] = useSearchParams()
   const days = parseDays(searchParams.get('days'))
 
@@ -438,7 +647,7 @@ export default function Team() {
   }
 
   const showEmptyReports = Boolean(
-    data && !isPlaceholderData && user?.role === 'MANAGER' && data.members.every((member) => member.self),
+    data && !isPlaceholderData && user?.role !== 'MEMBER' && data.members.every((member) => member.self),
   )
 
   let subtitle: string
@@ -515,6 +724,9 @@ export default function Team() {
               <Reveal delay={0.1} className="mt-4">
                 <ActivityCard data={data} />
               </Reveal>
+              {user?.role !== 'MEMBER' && (
+                <TeamInsightSection isDemo={isDemo} showEmptyReports={showEmptyReports} />
+              )}
               <MembersSection data={data} now={relativeNow} showEmptyReports={showEmptyReports} />
             </div>
           )}

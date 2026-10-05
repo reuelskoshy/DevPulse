@@ -1,7 +1,10 @@
 package com.devpulse.demo;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -18,8 +21,19 @@ import com.devpulse.demo.DemoDataset.PlannedPullRequest;
 import com.devpulse.demo.DemoDataset.PlannedReview;
 import com.devpulse.demo.DemoTeam.Persona;
 import com.devpulse.demo.DemoTeam.RepoWeight;
+import com.devpulse.insights.api.InsightDetails.Facts;
+import com.devpulse.insights.api.InsightDetails.Highlight;
+import com.devpulse.insights.api.TeamInsightDetails;
+import com.devpulse.insights.api.TeamInsightDetails.MemberShare;
+import com.devpulse.insights.api.TeamInsightDetails.TeamFacts;
 import com.devpulse.insights.domain.Insight;
+import com.devpulse.insights.domain.TeamInsight;
 import com.devpulse.insights.persistence.InsightRepository;
+import com.devpulse.insights.persistence.TeamInsightRepository;
+import com.devpulse.insights.service.InsightFacts;
+import com.devpulse.insights.service.TeamInsightService;
+import com.devpulse.insights.service.InsightFacts.CommitPoint;
+import com.devpulse.insights.service.InsightFacts.PullRequestPoint;
 import com.devpulse.integration.github.GitHubAccount;
 import com.devpulse.integration.github.GitHubAccountRepository;
 import com.devpulse.integration.github.GitHubAccountRepository.AccountSummary;
@@ -47,8 +61,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Users are upserted by email and keep their ids forever, so demo sessions issued before a reseed stay valid.
  * Everything hanging off a demo user (GitHub account, and through ON DELETE CASCADE its repos, commits and pull
- * requests, plus
- * AI insights) is replaced. Only rows belonging to users with {@code demo = true} are ever modified or deleted, and
+ * requests, plus AI and team insights) is replaced. Only rows belonging to users with {@code demo = true} are ever
+ * modified or deleted, and
  * if a reserved demo address already belongs to a real account the seed is refused before anything is written.
  *
  * <p>Callers must serialize calls (see {@link DemoService}); this class only guarantees atomicity. All entities
@@ -66,24 +80,27 @@ public class DemoDataSeeder {
     private final GitHubCommitRepository commitRepository;
     private final GitHubPullRequestRepository pullRequestRepository;
     private final InsightRepository insightRepository;
+    private final TeamInsightRepository teamInsightRepository;
     private final PasswordEncoder passwordEncoder;
 
     public DemoDataSeeder(DpUserRepository userRepository, GitHubAccountRepository accountRepository,
                           GitHubRepoRepository repoRepository, GitHubCommitRepository commitRepository,
                           GitHubPullRequestRepository pullRequestRepository, InsightRepository insightRepository,
-                          PasswordEncoder passwordEncoder) {
+                          TeamInsightRepository teamInsightRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.accountRepository = accountRepository;
         this.repoRepository = repoRepository;
         this.commitRepository = commitRepository;
         this.pullRequestRepository = pullRequestRepository;
         this.insightRepository = insightRepository;
+        this.teamInsightRepository = teamInsightRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
-    public record SeedResult(boolean seeded, int users, int accounts, int repos, int commits, int insights) {
+    public record SeedResult(boolean seeded, int users, int accounts, int repos, int commits, int insights,
+                             int teamInsights) {
         static SeedResult refused() {
-            return new SeedResult(false, 0, 0, 0, 0, 0);
+            return new SeedResult(false, 0, 0, 0, 0, 0, 0);
         }
     }
 
@@ -180,12 +197,110 @@ public class DemoDataSeeder {
         }
         insightRepository.saveAll(insights);
 
-        return new SeedResult(true, usersByEmail.size(), accounts.size(), repos.size(), commits.size(), insights.size());
+        teamInsightRepository.save(buildTeamInsight(dataset, usersByEmail));
+
+        return new SeedResult(true, usersByEmail.size(), accounts.size(), repos.size(), commits.size(),
+                insights.size(), 1);
     }
 
     /**
-     * Deletes the GitHub accounts (the database cascades to their repos and commits) and insights of demo users.
-     * Accounts are found through a projection and removed with a bulk delete that runs immediately, so the
+     * One team-wide insight for the demo manager, aggregating every persona's windowed commit, pull request and
+     * review activity the same way {@link com.devpulse.insights.service.TeamInsightService} would from real synced
+     * data, using the same {@link InsightFacts} the personal insights above are measured with.
+     */
+    private TeamInsight buildTeamInsight(DemoDataset dataset, Map<String, DpUser> usersByEmail) {
+        DpUser manager = usersByEmail.get(DemoTeam.MANAGER.email());
+        LocalDate windowStart = dataset.today().minusDays(DemoDataset.INSIGHT_WINDOW_DAYS - 1L);
+        Instant windowStartInstant = windowStart.atStartOfDay(ZoneOffset.UTC).toInstant();
+
+        List<CommitPoint> commitPoints = new ArrayList<>();
+        List<PullRequestPoint> pullRequestPoints = new ArrayList<>();
+        Set<String> reposTouched = new HashSet<>();
+        List<UUID> memberIds = new ArrayList<>();
+        Map<Persona, Integer> recentCommitsByPersona = new LinkedHashMap<>();
+        int activeMembers = 0;
+
+        for (PersonaPlan plan : dataset.plans()) {
+            memberIds.add(usersByEmail.get(plan.persona().email()).getId());
+            List<PlannedCommit> recent = plan.commits().stream()
+                    .filter(commit -> !LocalDate.ofInstant(commit.authoredAt(), ZoneOffset.UTC).isBefore(windowStart))
+                    .toList();
+            recentCommitsByPersona.put(plan.persona(), recent.size());
+            if (!recent.isEmpty()) {
+                activeMembers++;
+            }
+            for (PlannedCommit commit : recent) {
+                reposTouched.add(commit.repo().fullName());
+                commitPoints.add(new CommitPoint(commit.repo().fullName(), commit.authoredAt()));
+            }
+            plan.pullRequests().forEach(pr -> pullRequestPoints.add(
+                    new PullRequestPoint(true, pr.openedAt(), pr.mergedAt(), pr.closedAt(), null)));
+            plan.reviews().forEach(review -> pullRequestPoints.add(new PullRequestPoint(false,
+                    review.pullRequest().openedAt(), review.pullRequest().mergedAt(),
+                    review.pullRequest().closedAt(), review.reviewedAt())));
+        }
+
+        List<Persona> byActivity = new ArrayList<>(recentCommitsByPersona.keySet());
+        byActivity.sort(Comparator.comparingInt(recentCommitsByPersona::get).reversed());
+
+        List<MemberShare> topContributors = byActivity.stream()
+                .limit(TeamInsightService.MAX_TOP_CONTRIBUTORS)
+                .map(persona -> new MemberShare(persona.name(), recentCommitsByPersona.get(persona)))
+                .toList();
+
+        Facts facts = InsightFacts.compute(commitPoints, pullRequestPoints, windowStartInstant,
+                DemoDataset.INSIGHT_WINDOW_DAYS);
+        TeamFacts teamFacts = new TeamFacts(DemoDataset.INSIGHT_WINDOW_DAYS, dataset.plans().size(), activeMembers,
+                facts.commits(), reposTouched.size(), facts.pullRequestsOpened(), facts.pullRequestsMerged(),
+                facts.pullRequestsOpen(), facts.reviews(), facts.medianHoursToMerge(), topContributors);
+
+        String topName = topContributors.isEmpty() || topContributors.get(0).commits() == 0
+                ? null : topContributors.get(0).name();
+        String summary = DemoDataset.plural(activeMembers, "person") + " of " + teamFacts.memberCount()
+                + " on the team committed over the last 14 days: " + DemoDataset.plural(teamFacts.commits(), "commit")
+                + " across " + DemoDataset.plural(teamFacts.reposTouched(), "repository") + "."
+                + (topName == null ? "" : " " + topName + " led the way with "
+                        + DemoDataset.plural(topContributors.get(0).commits(), "commit") + ".");
+
+        List<Highlight> highlights = byActivity.stream()
+                .filter(persona -> recentCommitsByPersona.get(persona) > 0)
+                .limit(TeamInsightService.MAX_HIGHLIGHTS)
+                .map(persona -> new Highlight(persona.firstName(),
+                        DemoDataset.plural(recentCommitsByPersona.get(persona), "commit") + " in the last 14 days."))
+                .toList();
+
+        List<String> patterns = new ArrayList<>();
+        patterns.add(DemoDataset.plural(activeMembers, "person") + " of " + teamFacts.memberCount()
+                + " on the team committed in the last 14 days.");
+        patterns.add("Opened " + DemoDataset.plural(teamFacts.pullRequestsOpened(), "pull request") + " and merged "
+                + teamFacts.pullRequestsMerged()
+                + (teamFacts.medianHoursToMerge() == null ? ""
+                        : ", with a median of " + DemoDataset.hours(teamFacts.medianHoursToMerge()) + " from open to merge")
+                + "; the team gave " + DemoDataset.plural(teamFacts.reviews(), "review") + " on each other's work.");
+
+        List<String> suggestions = new ArrayList<>();
+        if (teamFacts.pullRequestsOpen() >= 2) {
+            suggestions.add("Nudge reviewers on the " + teamFacts.pullRequestsOpen()
+                    + " pull requests still open across the team.");
+        }
+        if (teamFacts.activeMembers() < teamFacts.memberCount()) {
+            suggestions.add("Check in with the " + DemoDataset.plural(teamFacts.memberCount() - teamFacts.activeMembers(), "person")
+                    + " on the team with no commits in the last 14 days.");
+        }
+        if (suggestions.isEmpty()) {
+            suggestions.add("Everyone on the team has been active; a good moment to plan the next milestone.");
+        }
+
+        TeamInsightDetails details = new TeamInsightDetails(topName == null ? null
+                : "The team's last two weeks, led by " + topName, highlights, patterns,
+                suggestions.subList(0, Math.min(TeamInsightService.MAX_LIST_ITEMS, suggestions.size())), teamFacts);
+        return new TeamInsight(manager.getId(), summary, teamFacts.memberCount(), teamFacts.commits(), memberIds,
+                details);
+    }
+
+    /**
+     * Deletes the GitHub accounts (the database cascades to their repos and commits) and AI and team insights of
+     * demo users. Accounts are found through a projection and removed with a bulk delete that runs immediately, so the
      * encrypted tokens are never decrypted and the old rows are gone before new ones reuse the same
      * {@code github_user_id}.
      */
@@ -201,6 +316,7 @@ public class DemoDataSeeder {
             accountRepository.deleteAllByIdInBatch(accountIds);
         }
         insightRepository.deleteByUserIdIn(demoUserIds);
+        teamInsightRepository.deleteByOwnerIdIn(demoUserIds);
     }
 
     /** Demo users left over from an older persona list drop out of the demo team instead of lingering on it. */

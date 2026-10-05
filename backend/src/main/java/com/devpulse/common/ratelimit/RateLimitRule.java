@@ -28,6 +28,9 @@ public enum RateLimitRule {
     /** Bounds Gemini API spend per user; generating an insight is a deliberate action, not a background poll. */
     GENERATE_INSIGHT(HttpMethod.POST, "/api/v1/insights/generate", 5, Duration.ofHours(1), Key.USER,
             "You've reached the AI insight limit for now. Try again later."),
+    /** Same budget as the personal insight, for the team-wide version managers/admins generate. */
+    GENERATE_TEAM_INSIGHT(HttpMethod.POST, "/api/v1/insights/team/generate", 5, Duration.ofHours(1), Key.USER,
+            "You've generated a few team insights already. Try again in a bit."),
     /** Stops the "Send me a test" button from being used to spam an inbox. */
     DIGEST_TEST(HttpMethod.POST, "/api/v1/digest/test", 3, Duration.ofHours(1), Key.USER,
             "Too many test digests. Try again later.");

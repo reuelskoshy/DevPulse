@@ -73,7 +73,7 @@ class DemoLoginEndpointTest {
     @Test
     void enabledDemoSeedsThenSignsInAsTheDemoManager() throws Exception {
         DpUser manager = demoManager();
-        when(seeder.seed(NOW)).thenReturn(new SeedResult(true, 6, 5, 14, 1000, 5));
+        when(seeder.seed(NOW)).thenReturn(new SeedResult(true, 6, 5, 14, 1000, 5, 1));
         when(userRepository.findByEmail(DemoTeam.MANAGER_EMAIL)).thenReturn(Optional.of(manager));
         when(jwtService.createAccessToken(manager)).thenReturn("demo-access-token");
 
@@ -107,7 +107,7 @@ class DemoLoginEndpointTest {
     @Test
     void neverIssuesATokenForARealAccountThatHoldsTheManagerAddress() throws Exception {
         DpUser realAccount = new DpUser("Someone Real", DemoTeam.MANAGER_EMAIL, "hash", DpUserRole.ADMIN);
-        when(seeder.seed(NOW)).thenReturn(new SeedResult(false, 0, 0, 0, 0, 0));
+        when(seeder.seed(NOW)).thenReturn(new SeedResult(false, 0, 0, 0, 0, 0, 0));
         when(userRepository.findByEmail(DemoTeam.MANAGER_EMAIL)).thenReturn(Optional.of(realAccount));
 
         mockMvc(demoService(true))
@@ -122,7 +122,7 @@ class DemoLoginEndpointTest {
     void neverIssuesATokenForADemoUserAtTheManagerAddressWhoIsNotAManager() throws Exception {
         DpUser demoMember = new DpUser("Maya Chen", DemoTeam.MANAGER_EMAIL, "hash", DpUserRole.MEMBER);
         demoMember.setDemo(true);
-        when(seeder.seed(NOW)).thenReturn(new SeedResult(true, 6, 5, 14, 1000, 5));
+        when(seeder.seed(NOW)).thenReturn(new SeedResult(true, 6, 5, 14, 1000, 5, 1));
         when(userRepository.findByEmail(DemoTeam.MANAGER_EMAIL)).thenReturn(Optional.of(demoMember));
 
         mockMvc(demoService(true))

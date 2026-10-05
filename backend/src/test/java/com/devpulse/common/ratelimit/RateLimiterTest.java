@@ -41,4 +41,17 @@ class RateLimiterTest {
 
         assertThat(rateLimiter.tryConsume(RateLimitRule.GITHUB_SYNC, "shared-key")).isEmpty();
     }
+
+    @Test
+    void generateTeamInsightBlocksAfterItsCapacityAndGivesEachKeyItsOwnBucket() {
+        for (int i = 0; i < RateLimitRule.GENERATE_TEAM_INSIGHT.capacity(); i++) {
+            assertThat(rateLimiter.tryConsume(RateLimitRule.GENERATE_TEAM_INSIGHT, "user-1")).isEmpty();
+        }
+
+        OptionalLong retryAfter = rateLimiter.tryConsume(RateLimitRule.GENERATE_TEAM_INSIGHT, "user-1");
+
+        assertThat(retryAfter).isPresent();
+        assertThat(retryAfter.getAsLong()).isPositive();
+        assertThat(rateLimiter.tryConsume(RateLimitRule.GENERATE_TEAM_INSIGHT, "user-2")).isEmpty();
+    }
 }

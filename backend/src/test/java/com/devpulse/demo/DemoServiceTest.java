@@ -29,8 +29,8 @@ import static org.mockito.Mockito.when;
 class DemoServiceTest {
 
     private static final Instant START = Instant.parse("2026-09-27T06:00:00Z");
-    private static final SeedResult SEEDED = new SeedResult(true, 6, 5, 14, 1000, 5);
-    private static final SeedResult REFUSED = new SeedResult(false, 0, 0, 0, 0, 0);
+    private static final SeedResult SEEDED = new SeedResult(true, 6, 5, 14, 1000, 5, 1);
+    private static final SeedResult REFUSED = new SeedResult(false, 0, 0, 0, 0, 0, 0);
 
     @Mock private DemoDataSeeder seeder;
 

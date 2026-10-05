@@ -21,6 +21,7 @@ import com.devpulse.demo.DemoDataSeeder.SeedResult;
 import com.devpulse.demo.DemoTeam.Persona;
 import com.devpulse.insights.domain.Insight;
 import com.devpulse.insights.persistence.InsightRepository;
+import com.devpulse.insights.persistence.TeamInsightRepository;
 import com.devpulse.integration.github.GitHubAccount;
 import com.devpulse.integration.github.GitHubAccountRepository;
 import com.devpulse.integration.github.GitHubAccountRepository.AccountSummary;
@@ -80,6 +81,7 @@ class DemoDataSeederTest {
     @Mock private GitHubCommitRepository commitRepository;
     @Mock private GitHubPullRequestRepository pullRequestRepository;
     @Mock private InsightRepository insightRepository;
+    @Mock private TeamInsightRepository teamInsightRepository;
     @Mock private PasswordEncoder passwordEncoder;
 
     private DemoDataSeeder seeder;
@@ -99,7 +101,7 @@ class DemoDataSeederTest {
     @BeforeEach
     void wireFakeStore() {
         seeder = new DemoDataSeeder(userRepository, accountRepository, repoRepository, commitRepository,
-                pullRequestRepository, insightRepository, passwordEncoder);
+                pullRequestRepository, insightRepository, teamInsightRepository, passwordEncoder);
 
         when(userRepository.findByEmailIn(anyCollection())).thenAnswer(invocation -> {
             Collection<String> emails = invocation.getArgument(0);
@@ -181,7 +183,7 @@ class DemoDataSeederTest {
         verify(userRepository, never()).save(any());
         verify(userRepository, never()).saveAll(anyIterable());
         verifyNoInteractions(accountRepository, repoRepository, commitRepository, pullRequestRepository, insightRepository,
-                passwordEncoder);
+                teamInsightRepository, passwordEncoder);
         assertThat(realAccount.isDemo()).isFalse();
         assertThat(realAccount.getName()).isEqualTo("Someone Real");
         assertThat(realAccount.getRole()).isEqualTo(DpUserRole.ADMIN);
@@ -228,6 +230,10 @@ class DemoDataSeederTest {
         ArgumentCaptor<Collection<UUID>> insightOwners = ArgumentCaptor.forClass(Collection.class);
         verify(insightRepository, atLeastOnce()).deleteByUserIdIn(insightOwners.capture());
         assertThat(insightOwners.getAllValues()).allSatisfy(ids -> assertThat(demoUserIds).containsAll(ids));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<UUID>> teamInsightOwners = ArgumentCaptor.forClass(Collection.class);
+        verify(teamInsightRepository, atLeastOnce()).deleteByOwnerIdIn(teamInsightOwners.capture());
+        assertThat(teamInsightOwners.getAllValues()).allSatisfy(ids -> assertThat(demoUserIds).containsAll(ids));
         assertThat(savedAccounts).allSatisfy(account -> assertThat(demoUserIds).contains(account.getUserId()));
 
         // The real users and their GitHub connection are exactly as they were.
@@ -295,7 +301,7 @@ class DemoDataSeederTest {
     void createsAManagerAndFiveDirectReportsThatNobodyCanSignInToWithAPassword() {
         SeedResult result = seeder.seed(NOW);
 
-        assertThat(result).isEqualTo(new SeedResult(true, 6, 5, result.repos(), result.commits(), 5));
+        assertThat(result).isEqualTo(new SeedResult(true, 6, 5, result.repos(), result.commits(), 5, 1));
         assertThat(users.values()).hasSize(6).allSatisfy(user -> {
             assertThat(user.isDemo()).isTrue();
             assertThat(user.getActiveStatus()).isTrue();
@@ -343,6 +349,10 @@ class DemoDataSeederTest {
         ArgumentCaptor<Collection<UUID>> deletedInsights = ArgumentCaptor.forClass(Collection.class);
         verify(insightRepository).deleteByUserIdIn(deletedInsights.capture());
         assertThat(new HashSet<>(deletedInsights.getValue())).isEqualTo(new HashSet<>(firstIds.values()));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<UUID>> deletedTeamInsights = ArgumentCaptor.forClass(Collection.class);
+        verify(teamInsightRepository).deleteByOwnerIdIn(deletedTeamInsights.capture());
+        assertThat(new HashSet<>(deletedTeamInsights.getValue())).isEqualTo(new HashSet<>(firstIds.values()));
 
         assertThat(accounts).hasSize(5).doesNotContainKeys(firstAccountIds.toArray(UUID[]::new));
     }

@@ -67,6 +67,7 @@ A handful of sensitive or costly endpoints are throttled with an in-memory token
 | `POST /api/v1/auth/demo` | 20 / min | IP address |
 | `POST /api/v1/integrations/github/sync` | 6 / min | user |
 | `POST /api/v1/insights/generate` | 5 / hour | user |
+| `POST /api/v1/insights/team/generate` | 5 / hour | user |
 | `POST /api/v1/digest/test` | 3 / hour | user |
 
 A throttled request gets `429 Too Many Requests` with a `Retry-After` header (seconds) and a friendly `message`. This runs on a single backend instance; a multi-instance deployment would need a shared store instead of the in-memory buckets.

@@ -499,7 +499,7 @@ final class DemoDataset {
                 suggestions.subList(0, Math.min(3, suggestions.size())), facts);
     }
 
-    private static String hours(double hours) {
+    static String hours(double hours) {
         // Matches the dashboard's formatHours, so the sentence and the fact chip show the same number.
         return hours < 48 ? BigDecimal.valueOf(hours).stripTrailingZeros().toPlainString() + "h"
                 : BigDecimal.valueOf(hours / 24).setScale(1, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString() + "d";
@@ -551,7 +551,7 @@ final class DemoDataset {
         return LocalDate.ofInstant(commit.authoredAt(), ZoneOffset.UTC);
     }
 
-    private static String plural(long count, String noun) {
+    static String plural(long count, String noun) {
         if (count == 1) {
             return "1 " + noun;
         }
